@@ -1,0 +1,28 @@
+Category 1: "Perfect" (Tones she thinks sound exactly like a native speaker).
+Category 2: "Understandable but Flawed" (Good effort, but she caught an error).
+Category 3: "Total Fail" (Completely wrong tone or unrecognizable inflection).
+
+ma1 = 1
+ma2 = 3
+gege = 2
+ma4 = 3
+ma3 = 1
+yinyue = 2
+pingguo = 1
+zaijian = 1
+jinnian = 1
+haizi = 1
+luxing = 2
+jintian = 1
+laoshi = 1
+jueding = 2
+jiejie = 2
+mingnian = 1
+xiexie = 1
+shuiguo = 1
+changge = 3
+jichang = 1
+wenti = 1
+haokan = 1
+diannao = 1
+mingtian = 1
