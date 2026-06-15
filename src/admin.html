@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin — Preset Recording Dashboard</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0a0a0f;
+      color: #e0e0e0;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ── */
+    #sidebar {
+      width: 220px;
+      min-width: 220px;
+      background: #0d0d15;
+      border-right: 1px solid #1a1a2e;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+    #sidebar h2 {
+      padding: 1rem;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #555;
+      border-bottom: 1px solid #1a1a2e;
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: background 0.15s;
+      border-left: 3px solid transparent;
+    }
+    .nav-item:hover { background: #111118; }
+    .nav-item.active {
+      background: #111118;
+      border-left-color: #00ffcc;
+    }
+    .nav-item .hanzi { font-size: 1.1rem; min-width: 2.5rem; }
+    .nav-item .pinyin { color: #888; font-size: 0.75rem; }
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      margin-left: auto;
+    }
+    .status-dot.recorded { background: #00cc66; }
+    .status-dot.missing { background: #cc3333; }
+
+    /* ── Main ── */
+    #main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+    #card {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+    #card .hanzi-main {
+      font-size: 5rem;
+      font-weight: 700;
+      line-height: 1.2;
+      color: #fff;
+    }
+    #card .pinyin-main {
+      font-size: 1.5rem;
+      color: #00ffcc;
+      margin: 0.5rem 0;
+    }
+    #card .tone-label {
+      font-size: 0.9rem;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    /* ── Mini Canvas ── */
+    #miniCanvas {
+      border: 1px solid #1a1a2e;
+      border-radius: 4px;
+      background: #0d0d15;
+      margin-bottom: 1.5rem;
+    }
+
+    /* ── Controls ── */
+    .controls {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+    button {
+      padding: 0.6rem 1.2rem;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: background 0.2s, opacity 0.2s;
+    }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    #prevBtn, #nextBtn {
+      background: #1a1a2e;
+      color: #e0e0e0;
+    }
+    #prevBtn:hover, #nextBtn:hover { background: #2a2a3e; }
+    #recordBtn {
+      background: #cc3333;
+      color: white;
+      font-weight: 600;
+      min-width: 140px;
+    }
+    #recordBtn:hover { background: #dd4444; }
+    #recordBtn.armed { background: #00cc66; }
+    #recordBtn.recording { background: #ff4444; }
+
+    #exportBtn {
+      background: #00ffcc;
+      color: #0a0a0f;
+      font-weight: 700;
+      padding: 0.8rem 2rem;
+      font-size: 1rem;
+      margin-top: 1rem;
+    }
+    #exportBtn:hover { background: #00e6b8; }
+    #exportBtn:disabled { background: #333; color: #666; }
+
+    /* ── Status bar ── */
+    #statusBar {
+      font-size: 0.8rem;
+      color: #666;
+      margin-top: 0.5rem;
+    }
+    #recordingCount {
+      color: #00ffcc;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Sidebar ── -->
+  <div id="sidebar">
+    <h2>Presets</h2>
+    <div id="navList"></div>
+  </div>
+
+  <!-- ── Main Card ── -->
+  <div id="main">
+    <div id="card">
+      <div class="hanzi-main" id="hanziDisplay"></div>
+      <div class="pinyin-main" id="pinyinDisplay"></div>
+      <div class="tone-label" id="toneLabel"></div>
+    </div>
+
+    <canvas id="miniCanvas" width="360" height="140"></canvas>
+
+    <div class="controls">
+      <button id="prevBtn">← Prev</button>
+      <button id="recordBtn">⏺ Arm Mic</button>
+      <button id="nextBtn">Next →</button>
+    </div>
+
+    <button id="exportBtn" disabled>Export Target Database</button>
+    <div id="statusBar">
+      Recorded: <span id="recordingCount">0</span> / 24
+    </div>
+  </div>
+
+  <script type="module" src="admin.js"></script>
+</body>
+</html>
