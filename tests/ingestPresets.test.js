@@ -32,8 +32,8 @@ describe('ingestPresets pipeline', () => {
     execSync('node scripts/ingestPresets.js', { stdio: 'pipe' });
     const data = JSON.parse(readFileSync(OUTPUT, 'utf-8'));
     const words = data.presets.map(p => p.word);
-    expect(words).toContain('公司');
-    expect(words).toContain('银行');
+    expect(words).toContain('音乐');
+    expect(words).toContain('明天');
     expect(words).toContain('老师');
     expect(words).toContain('妈');
     expect(words).toContain('麻');

@@ -176,8 +176,8 @@ const PRESET_DEFS = [
   { word: '麻',   pinyin: 'má',       tones: [2],    file: 'ma2.wav',     audioSrc: '/assets/audio/ma2.mp3' },
   { word: '马',   pinyin: 'mǎ',       tones: [3],    file: 'ma3.wav',     audioSrc: '/assets/audio/ma3.mp3' },
   { word: '骂',   pinyin: 'mà',       tones: [4],    file: 'ma4.wav',     audioSrc: '/assets/audio/ma4.mp3' },
-  { word: '公司', pinyin: 'gōngsī',   tones: [1, 4], file: 'gongsi.wav',  audioSrc: '/assets/audio/gongsi.mp3' },
-  { word: '银行', pinyin: 'yínháng',  tones: [2, 4], file: 'yinhang.wav', audioSrc: '/assets/audio/yinhang.mp3' },
+  { word: '音乐', pinyin: 'yīnyuè',  tones: [1, 4], file: 'yinyue.wav',   audioSrc: '/assets/audio/yinyue.mp3' },
+  { word: '明天', pinyin: 'míngtiān', tones: [2, 1], file: 'mingtian.wav', audioSrc: '/assets/audio/mingtian.mp3' },
   { word: '老师', pinyin: 'lǎoshī',   tones: [3, 1], file: 'laoshi.wav',  audioSrc: '/assets/audio/laoshi.mp3' },
 ];
 
