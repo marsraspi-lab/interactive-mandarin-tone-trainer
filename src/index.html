@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🎤 Mandarin Tone Trainer</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: #0a0a0f;
+      color: #e0e0e0;
+      font-family: 'Segoe UI', 'Inter', system-ui, -apple-system, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+    }
+
+    .container {
+      background: #111119;
+      border: 1px solid #1e1e2e;
+      border-radius: 16px;
+      padding: 28px 32px;
+      max-width: 840px;
+      width: 100%;
+      box-shadow: 0 0 40px rgba(0, 255, 204, 0.04);
+    }
+
+    h1 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: #00ffcc;
+      margin-bottom: 20px;
+      text-align: center;
+      letter-spacing: 0.5px;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: #08080e;
+      border: 1px solid #1e1e2e;
+      border-radius: 10px;
+      margin-bottom: 20px;
+    }
+
+    .controls {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+
+    button {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      border: 1px solid #2a2a3e;
+      border-radius: 8px;
+      padding: 10px 20px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      letter-spacing: 0.3px;
+    }
+
+    button:hover {
+      background: #22223a;
+      border-color: #00ffcc;
+      color: #00ffcc;
+    }
+
+    button:active {
+      transform: scale(0.97);
+    }
+
+    button.recording {
+      background: #2a1015;
+      border-color: #ff4466;
+      color: #ff4466;
+    }
+
+    button.recording:hover {
+      background: #3a1520;
+    }
+
+    button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    button:disabled:hover {
+      background: #1a1a2e;
+      border-color: #2a2a3e;
+      color: #e0e0e0;
+    }
+
+    select {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      border: 1px solid #2a2a3e;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 0.95rem;
+      font-weight: 500;
+      cursor: pointer;
+      min-width: 140px;
+    }
+
+    select:focus {
+      outline: none;
+      border-color: #00ffcc;
+    }
+
+    .info-row {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      flex-wrap: wrap;
+      font-size: 0.9rem;
+    }
+
+    .status {
+      color: #8888aa;
+    }
+
+    .score {
+      color: #00ffcc;
+      font-weight: 700;
+      font-size: 1.1rem;
+    }
+
+    .feedback {
+      color: #ffaa44;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎤 Mandarin Tone Trainer</h1>
+
+    <canvas id="canvas" width="800" height="400"></canvas>
+
+    <div class="controls">
+      <button id="recordBtn">🎙 Record</button>
+      <button id="playBtn" disabled>▶ Play</button>
+      <select id="wordSelect">
+        <option value="">— Select a word —</option>
+      </select>
+    </div>
+
+    <div class="info-row">
+      <span class="status" id="status">Ready — click Record to start</span>
+      <span class="score" id="score"></span>
+      <span class="feedback" id="feedback"></span>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
