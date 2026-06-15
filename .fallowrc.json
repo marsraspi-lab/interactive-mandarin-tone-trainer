@@ -1,0 +1,9 @@
+{
+  "usedClassMembers": [
+    "goto", "select*", "click*", "expect*", "waitFor*",
+    "fill*", "toggle*", "check*", "dismiss*", "mark*",
+    "*Btn", "*Button", "*Input", "*Status", "*Toast",
+    "record*", "play*", "stop*", "start*", "load*",
+    "grade*", "draw*"
+  ]
+}
