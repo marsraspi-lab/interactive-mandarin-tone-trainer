@@ -63,7 +63,26 @@ export function detectPitchAMDF(buffer, sampleRate) {
 }
 
 // Stubs — implemented in subsequent tasks
-export function applyThreePointSmoothing(pitchArray) { return pitchArray; }
+/**
+ * Apply 3-point moving average filter to smooth pitch contours.
+ * Eliminates artifacts from plosive consonants (e.g., "p", "t", "k").
+ * Formula: f_smooth[i] = (f[i-1] + f[i] + f[i+1]) / 3
+ * Endpoints use available neighbors only.
+ *
+ * @param {number[]} pitchArray — sequential pitch values in Hz
+ * @returns {number[]} smoothed pitch array
+ */
+export function applyThreePointSmoothing(pitchArray) {
+  if (pitchArray.length < 2) return [...pitchArray];
+
+  const result = new Array(pitchArray.length);
+  result[0] = (pitchArray[0] + pitchArray[1]) / 2;
+  for (let i = 1; i < pitchArray.length - 1; i++) {
+    result[i] = (pitchArray[i - 1] + pitchArray[i] + pitchArray[i + 1]) / 3;
+  }
+  result[pitchArray.length - 1] = (pitchArray[pitchArray.length - 2] + pitchArray[pitchArray.length - 1]) / 2;
+  return result;
+}
 export function computeDynamicTimeWarping(userTrack, nativeTrack) { return { userAligned: userTrack, nativeAligned: nativeTrack }; }
 export function calculateMAEScore(userTrack, nativeTrack) { return 0; }
 export function evaluateDiagnosticFeedback(userTrack, nativeTrack) { return ''; }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { detectPitchAMDF } from '../src/pitchMath.js';
+import { detectPitchAMDF, applyThreePointSmoothing } from '../src/pitchMath.js';
 
 /**
  * Generate a sine wave Float32Array at a given frequency.
@@ -61,5 +61,40 @@ describe('detectPitchAMDF', () => {
     const buffer = new Float32Array(2048); // All zeros
     const pitch = detectPitchAMDF(buffer, 44100);
     expect(pitch).toBe(0);
+  });
+});
+
+describe('applyThreePointSmoothing', () => {
+  it('dampens a single-sample spike outlier', () => {
+    const input = [150, 150, 900, 150, 150];
+    const result = applyThreePointSmoothing(input);
+    // f_smooth[2] = (150 + 900 + 150) / 3 = 400
+    expect(result[2]).toBeCloseTo(400, 0);
+    expect(result[2]).toBeLessThan(900);
+  });
+
+  it('preserves a flat signal unchanged', () => {
+    const input = [200, 200, 200, 200, 200];
+    const result = applyThreePointSmoothing(input);
+    result.forEach((val, i) => {
+      expect(val).toBeCloseTo(200, 1);
+    });
+  });
+
+  it('handles array with fewer than 3 elements', () => {
+    const input = [180];
+    const result = applyThreePointSmoothing(input);
+    expect(result).toEqual([180]);
+  });
+
+  it('handles endpoints correctly', () => {
+    const input = [100, 200, 300];
+    const result = applyThreePointSmoothing(input);
+    // i=0: (100 + 200) / 2 = 150
+    // i=1: (100 + 200 + 300) / 3 = 200
+    // i=2: (200 + 300) / 2 = 250
+    expect(result[0]).toBeCloseTo(150, 0);
+    expect(result[1]).toBeCloseTo(200, 0);
+    expect(result[2]).toBeCloseTo(250, 0);
   });
 });
