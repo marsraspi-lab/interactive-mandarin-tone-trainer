@@ -31,6 +31,7 @@ let isRecording = false;
 let animationId = null;
 let userPitchData = [];
 let presets = [];
+let currentAudio = null;
 
 // ── Canvas constants ────────────────────────────────────────────
 const MIN_HZ = 70;
@@ -308,8 +309,32 @@ async function loadPresets() {
 // ── Play button stub ─────────────────────────────────────────────
 
 playBtn.addEventListener('click', () => {
-  // STUB: playback comes in issue #5
-  statusEl.textContent = 'Playback coming in issue #5';
+  const selectedIndex = wordSelect.selectedIndex - 1; // skip placeholder
+  if (selectedIndex < 0) {
+    statusEl.textContent = 'Select a word first';
+    return;
+  }
+
+  const preset = presets[selectedIndex];
+  if (!preset || !preset.audioSrc) {
+    statusEl.textContent = 'No audio available for this word';
+    return;
+  }
+
+  // Stop any currently playing audio
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio = null;
+  }
+
+  currentAudio = new Audio(preset.audioSrc);
+  currentAudio.play().catch(err => {
+    statusEl.textContent = `Playback failed: ${err.message}`;
+    console.error('Audio playback error:', err);
+    currentAudio = null;
+  });
+
+  statusEl.textContent = `Playing: ${preset.word} (${preset.pinyin})`;
 });
 
 // ── Word select ──────────────────────────────────────────────────
