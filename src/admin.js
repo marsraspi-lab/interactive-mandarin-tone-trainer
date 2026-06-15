@@ -18,10 +18,10 @@ const PRESETS = [
   // Tone pairs
   { word: '今天', pinyin: 'jīntiān', tones: [1,1], file: 'jintian',    audioSrc: '/assets/audio/jintian.mp3' },
   { word: '今年', pinyin: 'jīnnián', tones: [1,2], file: 'jinnian',    audioSrc: '/assets/audio/jinnian.mp3' },
-  { word: '紧张', pinyin: 'jǐnzhāng',tones: [3,1], file: 'jinzhang',   audioSrc: '/assets/audio/jinzhang.mp3' },
-  { word: '公司', pinyin: 'gōngsī',  tones: [1,1], file: 'gongsi',     audioSrc: '/assets/audio/gongsi.mp3' },
+  { word: '好看', pinyin: 'hǎokàn', tones: [3,4], file: 'haokan',    audioSrc: '/assets/audio/haokan.mp3' },
+  { word: '音乐', pinyin: 'yīnyuè', tones: [1,4], file: 'yinyue',    audioSrc: '/assets/audio/yinyue.mp3' },
   { word: '哥哥', pinyin: 'gēge',    tones: [1,0], file: 'gege',       audioSrc: '/assets/audio/gege.mp3' },
-  { word: '银行', pinyin: 'yínháng', tones: [2,2], file: 'yinhang',    audioSrc: '/assets/audio/yinhang.mp3' },
+  { word: '明天', pinyin: 'míngtiān',tones: [2,1], file: 'mingtian',   audioSrc: '/assets/audio/mingtian.mp3' },
   { word: '明年', pinyin: 'míngnián',tones: [2,2], file: 'mingnian',   audioSrc: '/assets/audio/mingnian.mp3' },
   { word: '苹果', pinyin: 'píngguǒ', tones: [2,3], file: 'pingguo',    audioSrc: '/assets/audio/pingguo.mp3' },
   { word: '决定', pinyin: 'juédìng', tones: [2,4], file: 'jueding',    audioSrc: '/assets/audio/jueding.mp3' },
@@ -33,7 +33,7 @@ const PRESETS = [
   { word: '姐姐', pinyin: 'jiějie',  tones: [3,0], file: 'jiejie',     audioSrc: '/assets/audio/jiejie.mp3' },
   { word: '机场', pinyin: 'jīchǎng', tones: [1,3], file: 'jichang',    audioSrc: '/assets/audio/jichang.mp3' },
   { word: '问题', pinyin: 'wèntí',   tones: [4,2], file: 'wenti',      audioSrc: '/assets/audio/wenti.mp3' },
-  { word: '汉语', pinyin: 'hànyǔ',   tones: [4,3], file: 'hanyu',      audioSrc: '/assets/audio/hanyu.mp3' },
+  { word: '唱歌', pinyin: 'chànggē', tones: [4,1], file: 'changge',    audioSrc: '/assets/audio/changge.mp3' },
   { word: '再见', pinyin: 'zàijiàn', tones: [4,4], file: 'zaijian',    audioSrc: '/assets/audio/zaijian.mp3' },
   { word: '谢谢', pinyin: 'xièxie',  tones: [4,0], file: 'xiexie',     audioSrc: '/assets/audio/xiexie.mp3' },
 ];
