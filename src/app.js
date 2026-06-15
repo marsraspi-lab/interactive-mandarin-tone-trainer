@@ -30,6 +30,7 @@ let worker = null;
 let isRecording = false;
 let animationId = null;
 let userPitchData = [];
+let presets = [];
 
 // ── Canvas constants ────────────────────────────────────────────
 const MIN_HZ = 70;
@@ -229,35 +230,78 @@ recordBtn.addEventListener('click', () => {
   }
 });
 
-// ── Stubs (for issues #4 and #5) ──────────────────────────────────
+// ── Grading ─────────────────────────────────────────────────────
 
 function gradeAttempt() {
-  // STUB: In issue #4 this will load presets, run DTW+MAE+diagnostics
-  // For now, just check if there's data
-  if (userPitchData.length === 0) {
+  // Guard: need a preset selected and enough pitch data
+  const selectedIndex = wordSelect.selectedIndex - 1; // skip placeholder
+  if (selectedIndex < 0 || selectedIndex >= presets.length) {
+    statusEl.textContent += ' | Select a word before grading';
     return;
   }
-  // Placeholder
-  statusEl.textContent += ' | Grading coming in issue #4';
+  if (userPitchData.length < 5) {
+    statusEl.textContent += ' | Not enough pitch data to grade';
+    return;
+  }
+
+  const preset = presets[selectedIndex];
+
+  // Normalize user pitch data to 0–1 range
+  const nonZeroUser = userPitchData.filter(v => v > 0);
+  if (nonZeroUser.length === 0) {
+    statusEl.textContent += ' | No voice detected';
+    return;
+  }
+  const userMin = Math.min(...nonZeroUser);
+  const userMax = Math.max(...nonZeroUser);
+  const userRange = userMax - userMin || 1;
+  const normalizedUser = userPitchData.map(v =>
+    v > 0 ? (v - userMin) / userRange : 0
+  );
+
+  // DTW alignment
+  const { userAligned, nativeAligned } = computeDynamicTimeWarping(
+    normalizedUser,
+    preset.nativePitchReference,
+    100
+  );
+
+  // MAE score
+  const score = calculateMAEScore(userAligned, nativeAligned);
+  scoreEl.textContent = `${score}%`;
+
+  // Diagnostic feedback
+  const feedback = evaluateDiagnosticFeedback(userAligned, nativeAligned, preset.tones);
+  feedbackEl.textContent = feedback;
+
+  // Status message based on score
+  if (score >= 80) {
+    statusEl.textContent = 'Great job! 🎉';
+  } else if (score >= 50) {
+    statusEl.textContent = 'Getting there. Try again.';
+  } else {
+    statusEl.textContent = 'Keep practicing!';
+  }
 }
 
 async function loadPresets() {
-  // STUB: fetches presets.json (doesn't exist yet, will fail gracefully)
   try {
-    const resp = await fetch('presets.json');
+    const resp = await fetch('../presets.json');
     if (resp.ok) {
-      const presets = await resp.json();
+      const data = await resp.json();
+      presets = data.presets || [];
       // Populate wordSelect dropdown
-      for (const preset of presets) {
+      for (let i = 0; i < presets.length; i++) {
+        const preset = presets[i];
         const option = document.createElement('option');
-        option.value = preset.word;
-        option.textContent = preset.word;
+        option.value = String(i);
+        option.textContent = `${preset.word} (${preset.pinyin})`;
         wordSelect.appendChild(option);
       }
     }
-  } catch {
-    // presets.json doesn't exist yet — that's fine for now
-    console.log('No presets.json found — skipping preset load (issue #4)');
+  } catch (err) {
+    console.warn('Failed to load presets.json:', err);
+    presets = [];
   }
 }
 
