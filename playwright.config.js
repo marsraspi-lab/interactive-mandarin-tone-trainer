@@ -14,7 +14,7 @@ export default defineConfig({
     },
   },
   webServer: {
-    command: 'npx serve src -p 3000',
+    command: 'python3 -m http.server 3000 --directory src',
     port: 3000,
     reuseExistingServer: true,
   },
