@@ -7,6 +7,7 @@
     "test:watch": "vitest",
     "ingest": "node scripts/ingestPresets.js",
     "build": "npm run ingest && vite build",
+    "dev": "node scripts/dev-server.js",
     "e2e": "npx playwright test"
   },
   "devDependencies": {

@@ -67,9 +67,13 @@ npm run e2e
 # Build for production (ingests WAVs → presets.json → bundles via Vite)
 npm run build
 
-# Dev server (serves src/ directory)
-python3 -m http.server 3000 --directory src
+# Start dev server (Node.js, no extra dependencies)
+npm run dev
 # Then open http://localhost:3000
+# Admin dashboard: http://localhost:3000/admin.html
+
+# Or with Python
+python3 -m http.server 3000 --directory src
 ```
 
 ## Build pipeline
