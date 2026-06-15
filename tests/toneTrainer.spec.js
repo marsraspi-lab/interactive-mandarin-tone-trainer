@@ -19,7 +19,8 @@ test.describe('Mandarin Tone Trainer', () => {
     await page.click('#recordBtn');
     await page.waitForTimeout(2000);
     await page.click('#recordBtn');
-    await expect(page.locator('#status')).toContainText(/complete|pitch/i);
+    // Status shows grading result after gradeAttempt() runs
+    await expect(page.locator('#status')).toContainText(/Keep practicing|Getting there|Great job/i);
   });
 
   test('play button enables when word selected', async ({ page }) => {
