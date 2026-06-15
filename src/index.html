@@ -5,46 +5,65 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>🎤 Mandarin Tone Trainer</title>
   <style>
-    *, *::before, *::after {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       background: #0a0a0f;
       color: #e0e0e0;
-      font-family: 'Segoe UI', 'Inter', system-ui, -apple-system, sans-serif;
       display: flex;
-      justify-content: center;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ── */
+    #sidebar {
+      width: 220px;
+      min-width: 220px;
+      background: #0d0d15;
+      border-right: 1px solid #1a1a2e;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+    #sidebar h2 {
+      padding: 1rem;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #555;
+      border-bottom: 1px solid #1a1a2e;
+    }
+    .nav-item {
+      display: flex;
       align-items: center;
-      min-height: 100vh;
-      margin: 0;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: background 0.15s;
+      border-left: 3px solid transparent;
     }
-
-    .container {
-      background: #111119;
-      border: 1px solid #1e1e2e;
-      border-radius: 16px;
-      padding: 28px 32px;
-      max-width: 840px;
-      width: 100%;
-      box-shadow: 0 0 40px rgba(0, 255, 204, 0.04);
+    .nav-item:hover { background: #111118; }
+    .nav-item.active {
+      background: #111118;
+      border-left-color: #00ffcc;
     }
+    .nav-item .hanzi { font-size: 1.1rem; min-width: 2.5rem; }
+    .nav-item .pinyin { color: #888; font-size: 0.75rem; }
 
-    h1 {
-      font-size: 1.6rem;
-      font-weight: 700;
-      color: #00ffcc;
-      margin-bottom: 20px;
-      text-align: center;
-      letter-spacing: 0.5px;
+    /* ── Main ── */
+    #main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
     }
 
     canvas {
       display: block;
-      width: 100%;
-      height: auto;
       background: #08080e;
       border: 1px solid #1e1e2e;
       border-radius: 10px;
@@ -78,9 +97,7 @@
       color: #00ffcc;
     }
 
-    button:active {
-      transform: scale(0.97);
-    }
+    button:active { transform: scale(0.97); }
 
     button.recording {
       background: #2a1015;
@@ -88,9 +105,7 @@
       color: #ff4466;
     }
 
-    button.recording:hover {
-      background: #3a1520;
-    }
+    button.recording:hover { background: #3a1520; }
 
     button:disabled {
       opacity: 0.4;
@@ -103,23 +118,6 @@
       color: #e0e0e0;
     }
 
-    select {
-      background: #1a1a2e;
-      color: #e0e0e0;
-      border: 1px solid #2a2a3e;
-      border-radius: 8px;
-      padding: 10px 14px;
-      font-size: 0.95rem;
-      font-weight: 500;
-      cursor: pointer;
-      min-width: 140px;
-    }
-
-    select:focus {
-      outline: none;
-      border-color: #00ffcc;
-    }
-
     .info-row {
       display: flex;
       gap: 16px;
@@ -128,38 +126,42 @@
       font-size: 0.9rem;
     }
 
-    .status {
-      color: #8888aa;
-    }
+    .status { color: #8888aa; }
+    .score { color: #00ffcc; font-weight: 700; font-size: 1.1rem; }
+    .feedback { color: #ffaa44; font-style: italic; }
 
-    .score {
-      color: #00ffcc;
+    /* Title in main area */
+    .title {
+      font-size: 1.3rem;
       font-weight: 700;
-      font-size: 1.1rem;
-    }
-
-    .feedback {
-      color: #ffaa44;
-      font-style: italic;
+      color: #00ffcc;
+      margin-bottom: 16px;
+      text-align: center;
+      letter-spacing: 0.5px;
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>🎤 Mandarin Tone Trainer</h1>
+
+  <!-- ── Sidebar ── -->
+  <div id="sidebar">
+    <h2>Words</h2>
+    <div id="navList"></div>
+  </div>
+
+  <!-- ── Main ── -->
+  <div id="main">
+    <div class="title">🎤 Mandarin Tone Trainer</div>
 
     <canvas id="canvas" width="800" height="400"></canvas>
 
     <div class="controls">
       <button id="recordBtn">🎙 Record</button>
       <button id="playBtn" disabled>▶ Play</button>
-      <select id="wordSelect">
-        <option value="">— Select a word —</option>
-      </select>
     </div>
 
     <div class="info-row">
-      <span class="status" id="status">Ready — click Record to start</span>
+      <span class="status" id="status">Ready — select a word and click Record</span>
       <span class="score" id="score"></span>
       <span class="feedback" id="feedback"></span>
     </div>
