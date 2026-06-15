@@ -10,6 +10,8 @@ import {
   computeDynamicTimeWarping,
   calculateMAEScore,
   evaluateDiagnosticFeedback,
+  normalizeZScore,
+  clampValues,
 } from './pitchMath.js';
 
 // ── DOM references ──────────────────────────────────────────────
@@ -247,18 +249,11 @@ function gradeAttempt() {
 
   const preset = presets[selectedIndex];
 
-  // Normalize user pitch data to 0–1 range
-  const nonZeroUser = userPitchData.filter(v => v > 0);
-  if (nonZeroUser.length === 0) {
-    statusEl.textContent += ' | No voice detected';
-    return;
-  }
-  const userMin = Math.min(...nonZeroUser);
-  const userMax = Math.max(...nonZeroUser);
-  const userRange = userMax - userMin || 1;
-  const normalizedUser = userPitchData.map(v =>
-    v > 0 ? (v - userMin) / userRange : 0
-  );
+  // Z-score normalize user pitch data (μ=0, σ=1) — same pipeline as ingest
+  const zUser = normalizeZScore(userPitchData);
+
+  // Clamp to [-3, +3] to prevent outlier skew
+  const normalizedUser = clampValues(zUser, -3, 3);
 
   // DTW alignment
   const { userAligned, nativeAligned } = computeDynamicTimeWarping(

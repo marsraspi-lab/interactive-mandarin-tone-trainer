@@ -1,29 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { detectPitchAMDF, applyThreePointSmoothing, computeDynamicTimeWarping, calculateMAEScore, evaluateDiagnosticFeedback } from '../src/pitchMath.js';
-
-/**
- * Generate a sine wave Float32Array at a given frequency.
- * Uses frequencies that divide evenly into 44100 Hz to avoid subharmonic
- * false positives (a known AMDF limitation with pure synthetic tones).
- */
-function generateSineWave(frequency, sampleRate, durationSec = 0.1) {
-  const samples = Math.floor(sampleRate * durationSec);
-  const buffer = new Float32Array(samples);
-  for (let i = 0; i < samples; i++) {
-    buffer[i] = Math.sin(2 * Math.PI * frequency * i / sampleRate);
-  }
-  return buffer;
-}
-
-/** White noise buffer — aperiodic, AMDF should find no clear period */
-function generateWhiteNoise(sampleRate, durationSec = 0.1) {
-  const samples = Math.floor(sampleRate * durationSec);
-  const buffer = new Float32Array(samples);
-  for (let i = 0; i < samples; i++) {
-    buffer[i] = (Math.random() - 0.5) * 2;
-  }
-  return buffer;
-}
+import { detectPitchAMDF, applyThreePointSmoothing, computeDynamicTimeWarping, calculateMAEScore, evaluateDiagnosticFeedback, normalizeZScore, clampValues } from '../src/pitchMath.js';
+import { generateSineWave, generateWhiteNoise } from './helpers.js';
 
 describe('detectPitchAMDF', () => {
   it('detects a 220.5 Hz sine wave within 2% tolerance', () => {
@@ -99,6 +76,67 @@ describe('applyThreePointSmoothing', () => {
   });
 });
 
+describe('normalizeZScore', () => {
+  it('centers at μ=0 and scales to σ=1 for simple data', () => {
+    // Values: 100, 200, 300 → μ=200, σ≈81.65
+    const input = [100, 200, 300];
+    const result = normalizeZScore(input);
+    // z[0] = (100-200)/81.65 ≈ -1.22
+    // z[1] = (200-200)/81.65 = 0
+    // z[2] = (300-200)/81.65 ≈ 1.22
+    expect(result[1]).toBeCloseTo(0, 1);
+    expect(result[0]).toBeLessThan(0);
+    expect(result[2]).toBeGreaterThan(0);
+    // Symmetry: z[0] ≈ -z[2]
+    expect(Math.abs(result[0] + result[2])).toBeLessThan(0.1);
+  });
+
+  it('returns all zeros for fewer than 2 voiced values', () => {
+    expect(normalizeZScore([0, 0, 150, 0])).toEqual([0, 0, 0, 0]);
+  });
+
+  it('preserves zeros (silence) as zeros', () => {
+    const input = [0, 150, 0, 250, 0];
+    const result = normalizeZScore(input);
+    expect(result[0]).toBe(0);
+    expect(result[2]).toBe(0);
+    expect(result[4]).toBe(0);
+    // Voiced values should be non-zero
+    expect(result[1]).not.toBe(0);
+    expect(result[3]).not.toBe(0);
+  });
+
+  it('returns all zeros for flat (zero-variance) voiced signal', () => {
+    const input = [200, 200, 200, 200];
+    const result = normalizeZScore(input);
+    result.forEach(v => expect(v).toBe(0));
+  });
+});
+
+describe('clampValues', () => {
+  it('clamps values exceeding the range', () => {
+    const input = [-5, -1, 0, 0.5, 4];
+    const result = clampValues(input, -2, 2);
+    expect(result).toEqual([-2, -1, 0, 0.5, 2]);
+  });
+
+  it('leaves zeros untouched and clamps outliers', () => {
+    const input = [0, -3.5, 0, 5, 0];
+    const result = clampValues(input, -3, 3);
+    // Zeros untouched
+    expect(result.filter(v => v === 0).length).toBe(3);
+    // Outliers clamped
+    expect(result[1]).toBe(-3);
+    expect(result[3]).toBe(3);
+  });
+
+  it('preserves values within range unchanged', () => {
+    const input = [-1.5, -0.5, 0, 0.3, 1.8];
+    const result = clampValues(input, -2, 2);
+    expect(result).toEqual([-1.5, -0.5, 0, 0.3, 1.8]);
+  });
+});
+
 describe('computeDynamicTimeWarping', () => {
   it('aligns two identical arrays to same length', () => {
     const user = [0.2, 0.5, 0.8];
@@ -128,21 +166,21 @@ describe('computeDynamicTimeWarping', () => {
 
 describe('calculateMAEScore', () => {
   it('returns 100% for identical arrays', () => {
-    const arr = [0.1, 0.3, 0.5, 0.7, 0.9];
+    const arr = [-1.0, -0.5, 0.0, 0.5, 1.0];
     const score = calculateMAEScore(arr, arr);
     expect(score).toBe(100);
   });
 
-  it('returns a low score for inverted arrays', () => {
-    const user = [0.1, 0.3, 0.5, 0.7, 0.9];
-    const native = [0.9, 0.7, 0.5, 0.3, 0.1];
+  it('returns a low score for inverted arrays (Z-score range)', () => {
+    const user = [-1.5, -0.75, 0.0, 0.75, 1.5];
+    const native = [1.5, 0.75, 0.0, -0.75, -1.5];
     const score = calculateMAEScore(user, native);
     expect(score).toBeLessThan(50);
   });
 
   it('returns a score between 0 and 100', () => {
-    const user = [0.2, 0.4, 0.6, 0.8];
-    const native = [0.3, 0.5, 0.4, 0.9];
+    const user = [-0.5, 0.0, 0.5, 1.0];
+    const native = [0.0, 0.5, 0.0, 1.5];
     const score = calculateMAEScore(user, native);
     expect(score).toBeGreaterThanOrEqual(0);
     expect(score).toBeLessThanOrEqual(100);
@@ -155,32 +193,38 @@ describe('calculateMAEScore', () => {
 });
 
 describe('evaluateDiagnosticFeedback', () => {
-  it('detects rising→falling error (Tone 2 violation)', () => {
-    const native = [0.2, 0.35, 0.5, 0.65, 0.8];
-    const user = [0.8, 0.65, 0.5, 0.35, 0.2];
+  it('detects rising→falling error (Tone 2 violation, Z-score range)', () => {
+    // Native rises: -1 → 1, slope = 2 > 0.4
+    const native = [-1.0, -0.5, 0.0, 0.5, 1.0];
+    // User falls: 1 → -1, slope = -2 < -0.4
+    const user = [1.0, 0.5, 0.0, -0.5, -1.0];
     const feedback = evaluateDiagnosticFeedback(user, native, [2]);
     expect(feedback).toContain('Pitch Dropped');
     expect(feedback).toContain('rising tone');
   });
 
-  it('detects flat-when-should-dip error (Tone 3 violation)', () => {
-    const native = [0.5, 0.3, 0.1, 0.3, 0.5];
-    const user = [0.5, 0.5, 0.5, 0.5, 0.5];
+  it('detects flat-when-should-dip error (Tone 3 violation, Z-score range)', () => {
+    // Native dips: 1 → -0.5 → 1, dip depth = 1.5 > 0.6
+    const native = [1.0, 0.5, -0.5, 0.5, 1.0];
+    // User flat: all 0, dip depth = 0 < 0.2
+    const user = [0.0, 0.0, 0.0, 0.0, 0.0];
     const feedback = evaluateDiagnosticFeedback(user, native, [3]);
     expect(feedback).toContain('Not Deep Enough');
     expect(feedback).toContain('dipping tone');
   });
 
-  it('detects gradual-fall error (Tone 4 violation)', () => {
-    const native = [0.9, 0.8, 0.5, 0.25, 0.1];
-    const user = [0.9, 0.88, 0.85, 0.82, 0.8];
+  it('detects gradual-fall error (Tone 4 violation, Z-score range)', () => {
+    // Native falls sharply: 1.5 → -1.5, drop rate = 3.0/5 = 0.6 > 0.02
+    const native = [1.5, 1.0, 0.5, -0.5, -1.5];
+    // User falls gradually: 1.5 → 1.3, drop rate = 0.2/5 = 0.04 < 0.6*0.3
+    const user = [1.5, 1.45, 1.4, 1.35, 1.3];
     const feedback = evaluateDiagnosticFeedback(user, native, [4]);
     expect(feedback).toContain('Too Soft/Slow');
     expect(feedback).toContain('falling tone');
   });
 
   it('returns empty string when shape matches well', () => {
-    const arr = [0.1, 0.3, 0.5, 0.7, 0.9];
+    const arr = [-1.0, -0.5, 0.0, 0.5, 1.0];
     const feedback = evaluateDiagnosticFeedback(arr, arr, [1]);
     expect(feedback).toBe('');
   });

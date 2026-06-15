@@ -6,11 +6,13 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "ingest": "node scripts/ingestPresets.js",
+    "build": "npm run ingest && vite build",
+    "dev": "node scripts/dev-server.js",
     "e2e": "npx playwright test"
   },
   "devDependencies": {
     "@playwright/test": "^1.44.0",
-    "serve": "^14.2.6",
+    "vite": "^5.4.0",
     "vitest": "^1.6.0"
   }
 }
