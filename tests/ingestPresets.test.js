@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { execSync } from 'child_process';
 import { readFileSync, existsSync } from 'fs';
 
-const OUTPUT = 'src/presets.json'; // relative to project root
+const OUTPUT = 'presets.json'; // project root (canonical location)
 
 describe('ingestPresets pipeline', () => {
-  it('generates presets.json with correct structure', () => {
+  it('generates presets.json with correct Z-score normalized structure', () => {
     execSync('node scripts/ingestPresets.js', { stdio: 'pipe' });
     expect(existsSync(OUTPUT)).toBe(true);
     const data = JSON.parse(readFileSync(OUTPUT, 'utf-8'));
@@ -21,8 +21,9 @@ describe('ingestPresets pipeline', () => {
       expect(Array.isArray(preset.nativePitchReference)).toBe(true);
       expect(preset.nativePitchReference.length).toBe(100);
       for (const v of preset.nativePitchReference) {
-        expect(v).toBeGreaterThanOrEqual(0);
-        expect(v).toBeLessThanOrEqual(1);
+        // Z-score normalized + clamped to [-3, +3]; zeros for silence
+        expect(v).toBeGreaterThanOrEqual(-3);
+        expect(v).toBeLessThanOrEqual(3);
       }
     }
   });
@@ -34,5 +35,9 @@ describe('ingestPresets pipeline', () => {
     expect(words).toContain('公司');
     expect(words).toContain('银行');
     expect(words).toContain('老师');
+    expect(words).toContain('妈');
+    expect(words).toContain('麻');
+    expect(words).toContain('马');
+    expect(words).toContain('骂');
   });
 });

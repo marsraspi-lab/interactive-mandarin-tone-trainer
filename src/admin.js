@@ -5,7 +5,7 @@
  * pitchWorker.js pipeline, and exports a production-ready presets.json.
  */
 import { processAudioFrame } from './pitchWorker.js';
-import { applyThreePointSmoothing } from './pitchMath.js';
+import { applyThreePointSmoothing, normalizeZScore, clampValues } from './pitchMath.js';
 
 // ── Preset Corpus (24 entries) ────────────────────────────────────────────
 
@@ -240,20 +240,14 @@ async function processRecording() {
     // Smooth the entire curve
     const smoothed = applyThreePointSmoothing(rawPitches);
 
-    // Filter out zeros (unvoiced/silence) for normalization
-    const voiced = smoothed.filter(v => v > 0);
+    // Z-score normalize (μ=0, σ=1) — same pipeline as ingest
+    const zScored = normalizeZScore(smoothed);
 
-    // Normalize to 0–1 range
-    let normalized = new Array(smoothed.length).fill(0);
-    if (voiced.length > 0) {
-      const minP = Math.min(...voiced);
-      const maxP = Math.max(...voiced);
-      const range = maxP - minP || 1;
-      normalized = smoothed.map(v => v > 0 ? (v - minP) / range : 0);
-    }
+    // Time-domain threshold clamping to [-3, +3]
+    const clamped = clampValues(zScored, -3, 3);
 
     // Resample to exactly 100 points via linear interpolation
-    const resampled = resampleArray(normalized, 100);
+    const resampled = resampleArray(clamped, 100);
 
     // Store
     recordings.set(currentIndex, {

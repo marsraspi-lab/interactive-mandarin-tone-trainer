@@ -62,7 +62,6 @@ export function detectPitchAMDF(buffer, sampleRate) {
   return frequency;
 }
 
-// Stubs — implemented in subsequent tasks
 /**
  * Apply 3-point moving average filter to smooth pitch contours.
  * Eliminates artifacts from plosive consonants (e.g., "p", "t", "k").
@@ -83,13 +82,14 @@ export function applyThreePointSmoothing(pitchArray) {
   result[pitchArray.length - 1] = (pitchArray[pitchArray.length - 2] + pitchArray[pitchArray.length - 1]) / 2;
   return result;
 }
+
 /**
  * Resample both arrays to a common length via linear interpolation.
  * This is a lightweight alternative to full DTW — sufficient for
  * comparing pitch contour shapes.
  *
- * @param {number[]} userTrack — normalized user pitch values
- * @param {number[]} nativeTrack — normalized native pitch values
+ * @param {number[]} userTrack — Z-score normalized user pitch values
+ * @param {number[]} nativeTrack — Z-score normalized native pitch values
  * @param {number} [targetLength=100] — common length to resample to
  * @returns {{ userAligned: number[], nativeAligned: number[] }}
  */
@@ -119,14 +119,63 @@ export function computeDynamicTimeWarping(userTrack, nativeTrack, targetLength =
 }
 
 /**
- * Calculate Mean Absolute Error (MAE) between two normalized pitch arrays
+ * Z-score statistical normalization: centers the pitch array at μ=0 with σ=1.
+ * Zeros (silence/unvoiced frames) are excluded from μ/σ calculation and left as 0.
+ * Produces values typically in the range [-2.0, +2.0] for Mandarin pitch contours.
+ *
+ * @param {number[]} pitchArray — sequential pitch values in Hz (0 = silence)
+ * @returns {number[]} Z-score normalized values
+ */
+export function normalizeZScore(pitchArray) {
+  const voiced = pitchArray.filter(v => v > 0);
+  if (voiced.length < 2) return new Array(pitchArray.length).fill(0);
+
+  // Mean
+  let sum = 0;
+  for (const v of voiced) sum += v;
+  const mean = sum / voiced.length;
+
+  // Standard deviation (population)
+  let sumSqDiff = 0;
+  for (const v of voiced) sumSqDiff += (v - mean) ** 2;
+  const std = Math.sqrt(sumSqDiff / voiced.length);
+  if (std < 1e-10) return pitchArray.map(v => (v > 0 ? 0 : 0));
+
+  return pitchArray.map(v => (v > 0 ? (v - mean) / std : 0));
+}
+
+/**
+ * Clamp Z-score values to a fixed range to prevent extreme outliers
+ * from skewing DTW comparisons. Default range [-3, +3] captures 99.7% of
+ * normally-distributed data.
+ *
+ * @param {number[]} values — Z-score normalized pitch values
+ * @param {number} [min=-3] — floor
+ * @param {number} [max=3] — ceiling
+ * @returns {number[]} clamped values
+ */
+export function clampValues(values, min = -3, max = 3) {
+  const result = new Array(values.length);
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i];
+    result[i] = v === 0 ? 0 : (v < min ? min : (v > max ? max : v));
+  }
+  return result;
+}
+
+/**
+ * Calculate Mean Absolute Error (MAE) between two Z-score normalized pitch arrays
  * and convert to a 0–100% accuracy score.
  *
  * MAE = (1/n) * Σ|Ui - Ni|
  * Score = max(0, 100 * (1 - MAE / threshold))
  *
- * @param {number[]} userTrack — normalized user pitch values (0–1)
- * @param {number[]} nativeTrack — normalized native pitch values (0–1)
+ * For Z-score normalized data (μ=0, σ=1, typical range ±2):
+ *   threshold=2.0 → MAE of 2σ = 0% score
+ *   threshold=1.0 → MAE of 1σ = 50% score
+ *
+ * @param {number[]} userTrack — Z-score normalized user pitch values
+ * @param {number[]} nativeTrack — Z-score normalized native pitch values
  * @returns {number} accuracy score 0–100
  */
 export function calculateMAEScore(userTrack, nativeTrack) {
@@ -139,9 +188,8 @@ export function calculateMAEScore(userTrack, nativeTrack) {
   }
   const mae = sumAbsError / userTrack.length;
 
-  // MAE of 0.5 means average deviation is 50% of the normalized range — that's terrible
-  // Map MAE to score: MAE=0 → 100%, MAE=0.5 → 0%
-  const score = Math.max(0, 100 * (1 - mae / 0.5));
+  // Z-score threshold: MAE of 2.0 means avg deviation is 2σ — that's failing
+  const score = Math.max(0, 100 * (1 - mae / 2.0));
   return Math.round(score);
 }
 
@@ -154,8 +202,10 @@ export function calculateMAEScore(userTrack, nativeTrack) {
  *  - Not Deep Enough (dipping tone but user stayed flat)
  *  - Too Soft/Slow (falling tone but user declined gradually)
  *
- * @param {number[]} userTrack — normalized user pitch values (0–1)
- * @param {number[]} nativeTrack — normalized native pitch values (0–1)
+ * Thresholds calibrated for Z-score normalized values (μ=0, σ=1, range ~±2).
+ *
+ * @param {number[]} userTrack — Z-score normalized user pitch values
+ * @param {number[]} nativeTrack — Z-score normalized native pitch values
  * @param {number[]} tones — tone numbers for each syllable (e.g. [2, 4])
  * @returns {string} diagnostic message, or '' if no clear error pattern
  */
@@ -175,21 +225,21 @@ export function evaluateDiagnosticFeedback(userTrack, nativeTrack, tones = []) {
   const userSlope = userEnd - userStart;
 
   // Tone 2 check: native rises but user falls
-  if (tones.includes(2) && nativeSlope > 0.1 && userSlope < -0.1) {
+  if (tones.includes(2) && nativeSlope > 0.4 && userSlope < -0.4) {
     return 'Pitch Dropped: For this rising tone (Tone 2), your voice must slide upward like you are asking an unprompted question. You dragged it downward.';
   }
 
   // Tone 3 check: native dips but user stays flat
   const nativeDipDepth = Math.max(nativeStart, nativeEnd) - nativeMid;
   const userDipDepth = Math.max(userStart, userEnd) - userMid;
-  if (tones.includes(3) && nativeDipDepth > 0.15 && userDipDepth < 0.05) {
+  if (tones.includes(3) && nativeDipDepth > 0.6 && userDipDepth < 0.2) {
     return 'Not Deep Enough: For this dipping tone (Tone 3), drop your pitch completely into the lowest basement of your vocal range before letting it rise.';
   }
 
   // Tone 4 check: native falls sharply but user falls gradually
   const nativeDropRate = (nativeStart - nativeEnd) / n;
   const userDropRate = (userStart - userEnd) / n;
-  if (tones.includes(4) && nativeDropRate > 0.005 && userDropRate < nativeDropRate * 0.3) {
+  if (tones.includes(4) && nativeDropRate > 0.02 && userDropRate < nativeDropRate * 0.3) {
     return 'Too Soft/Slow: This falling tone (Tone 4) should sound like an abrupt, angry command. Drop your pitch rapidly and confidently.';
   }
 
