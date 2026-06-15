@@ -15,8 +15,8 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(__dirname, '..');
-const AUDIO_DIR = resolve(PROJECT_ROOT, 'audio');
-const OUTPUT_PATH = resolve(PROJECT_ROOT, 'presets.json');
+const AUDIO_DIR = resolve(PROJECT_ROOT, 'src', 'assets', 'audio');
+const OUTPUT_PATH = resolve(PROJECT_ROOT, 'src', 'presets.json');
 
 // ── WAV header parser ──────────────────────────────────────────────
 
@@ -322,9 +322,9 @@ function fillZeros(arr) {
 // ── Preset definitions ────────────────────────────────────────────
 
 const PRESET_DEFS = [
-  { word: '公司', pinyin: 'gōngsī', tones: [1, 4], file: 'gongsi.wav', audioSrc: '/audio/gongsi.wav' },
-  { word: '銀行', pinyin: 'yínháng', tones: [2, 4], file: 'yinhang.wav', audioSrc: '/audio/yinhang.wav' },
-  { word: '老師', pinyin: 'lǎoshī', tones: [3, 1], file: 'laoshi.wav', audioSrc: '/audio/laoshi.wav' },
+  { word: '公司', pinyin: 'gōngsī', tones: [1, 4], file: 'gongsi.wav', audioSrc: '/assets/audio/gongsi.mp3' },
+  { word: '银行', pinyin: 'yínháng', tones: [2, 4], file: 'yinhang.wav', audioSrc: '/assets/audio/yinhang.mp3' },
+  { word: '老师', pinyin: 'lǎoshī', tones: [3, 1], file: 'laoshi.wav', audioSrc: '/assets/audio/laoshi.mp3' },
 ];
 
 // ── Main ───────────────────────────────────────────────────────────

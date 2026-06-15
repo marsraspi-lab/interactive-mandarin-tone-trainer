@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { execSync } from 'child_process';
 import { readFileSync, existsSync } from 'fs';
 
-const OUTPUT = 'presets.json'; // relative to cwd
+const OUTPUT = 'src/presets.json'; // relative to project root
 
 describe('ingestPresets pipeline', () => {
   it('generates presets.json with correct structure', () => {
@@ -32,7 +32,7 @@ describe('ingestPresets pipeline', () => {
     const data = JSON.parse(readFileSync(OUTPUT, 'utf-8'));
     const words = data.presets.map(p => p.word);
     expect(words).toContain('公司');
-    expect(words).toContain('銀行');
-    expect(words).toContain('老師');
+    expect(words).toContain('银行');
+    expect(words).toContain('老师');
   });
 });

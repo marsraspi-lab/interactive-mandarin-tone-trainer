@@ -287,7 +287,7 @@ function gradeAttempt() {
 
 async function loadPresets() {
   try {
-    const resp = await fetch('../presets.json');
+    const resp = await fetch('/presets.json');
     if (resp.ok) {
       const data = await resp.json();
       presets = data.presets || [];
