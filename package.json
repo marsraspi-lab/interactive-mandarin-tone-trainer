@@ -1,0 +1,15 @@
+{
+  "name": "mandarin-tone-trainer",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "ingest": "node scripts/ingestPresets.js",
+    "e2e": "npx playwright test"
+  },
+  "devDependencies": {
+    "vitest": "^1.6.0",
+    "@playwright/test": "^1.44.0"
+  }
+}
