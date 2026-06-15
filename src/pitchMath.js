@@ -84,6 +84,32 @@ export function applyThreePointSmoothing(pitchArray) {
 }
 
 /**
+ * Resample an array to exactly targetLength points via linear interpolation.
+ * Used by both the build pipeline and client-side grading for consistent
+ * 100-point time normalization.
+ *
+ * @param {number[]} arr — input array
+ * @param {number} targetLength — desired output length
+ * @returns {number[]} resampled array
+ */
+export function resampleArray(arr, targetLength) {
+  if (arr.length === 0) return new Array(targetLength).fill(0);
+  if (arr.length === 1) return new Array(targetLength).fill(arr[0]);
+
+  const result = new Array(targetLength);
+  const step = (arr.length - 1) / (targetLength - 1);
+
+  for (let i = 0; i < targetLength; i++) {
+    const pos = i * step;
+    const lo = Math.floor(pos);
+    const hi = Math.min(lo + 1, arr.length - 1);
+    const frac = pos - lo;
+    result[i] = arr[lo] + (arr[hi] - arr[lo]) * frac;
+  }
+  return result;
+}
+
+/**
  * Resample both arrays to a common length via linear interpolation.
  * This is a lightweight alternative to full DTW — sufficient for
  * comparing pitch contour shapes.
@@ -98,23 +124,9 @@ export function computeDynamicTimeWarping(userTrack, nativeTrack, targetLength =
     return { userAligned: [], nativeAligned: [] };
   }
 
-  const resample = (arr, len) => {
-    if (arr.length === 1) return new Array(len).fill(arr[0]);
-    const result = new Array(len);
-    const step = (arr.length - 1) / (len - 1);
-    for (let i = 0; i < len; i++) {
-      const pos = i * step;
-      const lo = Math.floor(pos);
-      const hi = Math.min(lo + 1, arr.length - 1);
-      const frac = pos - lo;
-      result[i] = arr[lo] + (arr[hi] - arr[lo]) * frac;
-    }
-    return result;
-  };
-
   return {
-    userAligned: resample(userTrack, targetLength),
-    nativeAligned: resample(nativeTrack, targetLength),
+    userAligned: resampleArray(userTrack, targetLength),
+    nativeAligned: resampleArray(nativeTrack, targetLength),
   };
 }
 

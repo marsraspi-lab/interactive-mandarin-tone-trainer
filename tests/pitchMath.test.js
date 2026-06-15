@@ -1,29 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { detectPitchAMDF, applyThreePointSmoothing, computeDynamicTimeWarping, calculateMAEScore, evaluateDiagnosticFeedback, normalizeZScore, clampValues } from '../src/pitchMath.js';
-
-/**
- * Generate a sine wave Float32Array at a given frequency.
- * Uses frequencies that divide evenly into 44100 Hz to avoid subharmonic
- * false positives (a known AMDF limitation with pure synthetic tones).
- */
-function generateSineWave(frequency, sampleRate, durationSec = 0.1) {
-  const samples = Math.floor(sampleRate * durationSec);
-  const buffer = new Float32Array(samples);
-  for (let i = 0; i < samples; i++) {
-    buffer[i] = Math.sin(2 * Math.PI * frequency * i / sampleRate);
-  }
-  return buffer;
-}
-
-/** White noise buffer — aperiodic, AMDF should find no clear period */
-function generateWhiteNoise(sampleRate, durationSec = 0.1) {
-  const samples = Math.floor(sampleRate * durationSec);
-  const buffer = new Float32Array(samples);
-  for (let i = 0; i < samples; i++) {
-    buffer[i] = (Math.random() - 0.5) * 2;
-  }
-  return buffer;
-}
+import { generateSineWave, generateWhiteNoise } from './helpers.js';
 
 describe('detectPitchAMDF', () => {
   it('detects a 220.5 Hz sine wave within 2% tolerance', () => {
@@ -143,12 +120,12 @@ describe('clampValues', () => {
     expect(result).toEqual([-2, -1, 0, 0.5, 2]);
   });
 
-  it('preserves zeros as zeros', () => {
+  it('leaves zeros untouched and clamps outliers', () => {
     const input = [0, -3.5, 0, 5, 0];
     const result = clampValues(input, -3, 3);
-    expect(result[0]).toBe(0);
-    expect(result[2]).toBe(0);
-    expect(result[4]).toBe(0);
+    // Zeros untouched
+    expect(result.filter(v => v === 0).length).toBe(3);
+    // Outliers clamped
     expect(result[1]).toBe(-3);
     expect(result[3]).toBe(3);
   });

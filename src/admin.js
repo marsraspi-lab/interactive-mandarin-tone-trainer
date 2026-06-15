@@ -5,7 +5,7 @@
  * pitchWorker.js pipeline, and exports a production-ready presets.json.
  */
 import { processAudioFrame } from './pitchWorker.js';
-import { applyThreePointSmoothing, normalizeZScore, clampValues } from './pitchMath.js';
+import { applyThreePointSmoothing, normalizeZScore, clampValues, resampleArray } from './pitchMath.js';
 
 // ── Preset Corpus (24 entries) ────────────────────────────────────────────
 
@@ -264,21 +264,6 @@ async function processRecording() {
   } catch (err) {
     alert('Processing failed: ' + err.message);
   }
-}
-
-function resampleArray(arr, targetLen) {
-  if (arr.length === 0) return [];
-  if (arr.length === 1) return new Array(targetLen).fill(arr[0]);
-  const result = new Array(targetLen);
-  const step = (arr.length - 1) / (targetLen - 1);
-  for (let i = 0; i < targetLen; i++) {
-    const pos = i * step;
-    const lo = Math.floor(pos);
-    const hi = Math.min(lo + 1, arr.length - 1);
-    const frac = pos - lo;
-    result[i] = arr[lo] + (arr[hi] - arr[lo]) * frac;
-  }
-  return result;
 }
 
 function downloadBlob(blob, filename) {

@@ -22,6 +22,7 @@ import {
   applyThreePointSmoothing,
   normalizeZScore,
   clampValues,
+  resampleArray,
 } from '../src/pitchMath.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -40,6 +41,7 @@ const PUBLIC_OUTPUT_PATH = resolve(PROJECT_ROOT, 'public', 'presets.json');
  * @param {Buffer} buffer — raw WAV file contents
  * @returns {{ samples: Float32Array, sampleRate: number, channels: number, bitsPerSample: number }}
  */
+// fallow-ignore-next-line complexity
 function parseWAV(buffer) {
   const riff = buffer.toString('ascii', 0, 4);
   if (riff !== 'RIFF') throw new Error('Not a valid WAV file: missing RIFF header');
@@ -129,33 +131,6 @@ function extractPitchCurve(samples, sampleRate, frameSize = 2048, hopSize = 512)
   return pitches;
 }
 
-// ── Resampling via linear interpolation ───────────────────────────
-
-/**
- * Resample an array to exactly targetLength points via linear interpolation.
- * Identical to the resample inner function in pitchMath.js computeDynamicTimeWarping.
- *
- * @param {number[]} arr — input array
- * @param {number} targetLength — desired output length
- * @returns {number[]}
- */
-function resampleArray(arr, targetLength) {
-  if (arr.length === 0) return new Array(targetLength).fill(0);
-  if (arr.length === 1) return new Array(targetLength).fill(arr[0]);
-
-  const result = new Array(targetLength);
-  const step = (arr.length - 1) / (targetLength - 1);
-
-  for (let i = 0; i < targetLength; i++) {
-    const pos = i * step;
-    const lo = Math.floor(pos);
-    const hi = Math.min(lo + 1, arr.length - 1);
-    const frac = pos - lo;
-    result[i] = arr[lo] + (arr[hi] - arr[lo]) * frac;
-  }
-  return result;
-}
-
 // ── Pipeline ───────────────────────────────────────────────────────
 
 /**
@@ -208,6 +183,7 @@ const PRESET_DEFS = [
 
 // ── Main ───────────────────────────────────────────────────────────
 
+// fallow-ignore-next-line complexity
 function main() {
   // Verify fixtures directory exists
   if (!existsSync(FIXTURES_DIR)) {

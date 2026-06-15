@@ -1,17 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { processAudioFrame } from '../src/pitchWorker.js';
-
-/**
- * Generate a sine wave Float32Array at a given frequency.
- */
-function generateSineWave(frequency, sampleRate, durationSec = 0.1) {
-  const samples = Math.floor(sampleRate * durationSec);
-  const buffer = new Float32Array(samples);
-  for (let i = 0; i < samples; i++) {
-    buffer[i] = Math.sin(2 * Math.PI * frequency * i / sampleRate);
-  }
-  return buffer;
-}
+import { generateSineWave } from './helpers.js';
 
 describe('pitchWorker processAudioFrame', () => {
   it('detects pitch from a sine wave and returns raw frequency', () => {
