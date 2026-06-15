@@ -30,6 +30,7 @@ const MIME = {
   '.ico':  'image/x-icon',
 };
 
+// fallow-ignore-next-line complexity
 const server = createServer(async (req, res) => {
   // Sanitize path (prevent traversal)
   let urlPath = req.url.split('?')[0];
