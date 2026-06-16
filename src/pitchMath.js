@@ -149,6 +149,118 @@ export function detectPitchAutocorrelation(buffer, sampleRate) {
 }
 
 /**
+ * Hybrid pitch detection: runs both AMDF and autocorrelation, selects the
+ * result with higher confidence. Confidence metrics:
+ *   AMDF: dip prominence = (meanDiff − bestDiff) / meanDiff (0–1)
+ *   Autocorr: correlation strength = bestCorr / signalEnergy (0–1)
+ *
+ * Only accepts a result if confidence exceeds minConfidence.
+ * This avoids blind fallback — both detectors must earn their selection.
+ *
+ * @param {Float32Array} buffer — time-domain audio samples
+ * @param {number} sampleRate — samples per second
+ * @param {number} [minConfidence=0.15] — minimum confidence to accept any result
+ * @returns {number} detected frequency in Hz, or 0 if neither detector is confident
+ */
+export function detectPitchHybrid(buffer, sampleRate, minConfidence = 0.15) {
+  // ── Shared pre-checks ─────────────────────────────────────────────
+  const MIN_FREQ = 60;
+  const MAX_FREQ = 400;
+  const N = buffer.length;
+
+  let sumSq = 0;
+  for (let i = 0; i < N; i++) sumSq += buffer[i] * buffer[i];
+  const rms = Math.sqrt(sumSq / N);
+  if (rms < 0.002) return 0;
+
+  let zcrCrossings = 0;
+  for (let i = 1; i < N; i++) {
+    const sc = buffer[i] > 0 ? 1 : (buffer[i] < 0 ? -1 : 0);
+    const sp = buffer[i - 1] > 0 ? 1 : (buffer[i - 1] < 0 ? -1 : 0);
+    if (sc !== sp) zcrCrossings++;
+  }
+  if (zcrCrossings / (2 * N) > 0.15) return 0;
+
+  const energy = sumSq / N;
+
+  // ── AMDF path ─────────────────────────────────────────────────────
+  const MIN_PERIOD = Math.floor(sampleRate / MAX_FREQ);
+  const MAX_PERIOD = Math.floor(sampleRate / MIN_FREQ);
+
+  let amdfBestPeriod = -1;
+  let amdfBestDiff = Infinity;
+  let amdfSumAll = 0;
+  let amdfCountAll = 0;
+
+  for (let period = MIN_PERIOD; period <= MAX_PERIOD; period++) {
+    let diffSum = 0;
+    let count = 0;
+    for (let i = 0; i < N - period; i++) {
+      diffSum += Math.abs(buffer[i] - buffer[i + period]);
+      count++;
+    }
+    const avgDiff = diffSum / count;
+    amdfSumAll += avgDiff;
+    amdfCountAll++;
+
+    if (avgDiff < amdfBestDiff - 1e-12) {
+      amdfBestDiff = avgDiff;
+      amdfBestPeriod = period;
+    }
+  }
+
+  const amdfFreq = amdfBestPeriod > 0 ? sampleRate / amdfBestPeriod : 0;
+  const amdfValid = amdfFreq >= MIN_FREQ && amdfFreq <= MAX_FREQ;
+  const amdfMeanDiff = amdfCountAll > 0 ? amdfSumAll / amdfCountAll : 0;
+  const amdfConfidence = amdfMeanDiff > 1e-10
+    ? (amdfMeanDiff - amdfBestDiff) / amdfMeanDiff
+    : 0;
+
+  // ── Autocorrelation path ──────────────────────────────────────────
+  const MIN_LAG = MIN_PERIOD;
+  const MAX_LAG = MAX_PERIOD;
+
+  let acBestLag = -1;
+  let acBestCorr = -Infinity;
+
+  for (let lag = MIN_LAG; lag <= MAX_LAG && lag < N; lag++) {
+    let corrSum = 0;
+    let count = 0;
+    for (let i = 0; i < N - lag; i++) {
+      corrSum += buffer[i] * buffer[i + lag];
+      count++;
+    }
+    const avgCorr = corrSum / count;
+    if (avgCorr > acBestCorr) {
+      acBestCorr = avgCorr;
+      acBestLag = lag;
+    }
+  }
+
+  const acFreq = acBestLag > 0 ? sampleRate / acBestLag : 0;
+  const acValid = acFreq >= MIN_FREQ && acFreq <= MAX_FREQ;
+  const acConfidence = energy > 1e-10 ? acBestCorr / energy : 0;
+
+  // ── Select winner ─────────────────────────────────────────────────
+  // Both must meet minimum confidence. Pick the higher-confidence one.
+  // If they disagree by >20%, trust the one with higher confidence.
+  const amdfOk = amdfValid && amdfConfidence >= minConfidence;
+  const acOk = acValid && acConfidence >= minConfidence;
+
+  if (amdfOk && acOk) {
+    // Both confident — prefer higher confidence
+    if (amdfConfidence >= acConfidence) return amdfFreq;
+    // If they disagree significantly, trust AMDF (more conservative)
+    const disagreement = Math.abs(amdfFreq - acFreq) / Math.max(amdfFreq, acFreq);
+    if (disagreement > 0.2 && amdfConfidence > acConfidence * 0.8) return amdfFreq;
+    return acFreq;
+  }
+  if (amdfOk) return amdfFreq;
+  if (acOk) return acFreq;
+  return 0;
+}
+
+/**
  * Task 1.2: Anti-Octave Jump Sub-Harmonic Filter.
  *
  * AMDF can lock onto harmonics (2×f0) or subharmonics (0.5×f0), causing

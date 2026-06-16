@@ -24,6 +24,7 @@ import { createHash } from 'crypto';
 import {
   detectPitchAMDF,
   detectPitchAutocorrelation,
+  detectPitchHybrid,
   applyThreePointSmoothing,
   applyOctaveCorrection,
   applySplineInterpolation,
