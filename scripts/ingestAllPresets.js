@@ -104,7 +104,7 @@ function parseWAV(buffer) {
 
 // ── Pitch curve extraction from WAV ────────────────────────────────
 
-function extractPitchCurve(samples, sampleRate, frameSize = 2048, hopSize = 512) {
+function extractPitchCurve(samples, sampleRate, frameSize = 4096, hopSize = 512) {
   const pitches = [];
   for (let start = 0; start + frameSize <= samples.length; start += hopSize) {
     const frame = samples.slice(start, start + frameSize);

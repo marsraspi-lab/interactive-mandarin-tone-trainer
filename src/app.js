@@ -184,7 +184,7 @@ async function initAudio() {
   });
 
   analyserNode = audioContext.createAnalyser();
-  analyserNode.fftSize = 2048;
+  analyserNode.fftSize = 4096;
 
   const source = audioContext.createMediaStreamSource(micStream);
   source.connect(analyserNode);

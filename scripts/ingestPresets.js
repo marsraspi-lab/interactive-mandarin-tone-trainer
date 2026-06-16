@@ -117,11 +117,11 @@ function parseWAV(buffer) {
  *
  * @param {Float32Array} samples — full audio samples
  * @param {number} sampleRate — samples per second
- * @param {number} [frameSize=2048] — analysis window size
+ * @param {number} [frameSize=4096] — analysis window size
  * @param {number} [hopSize=512] — stride between windows
  * @returns {number[]} pitch values in Hz (0 = no voice detected)
  */
-function extractPitchCurve(samples, sampleRate, frameSize = 2048, hopSize = 512) {
+function extractPitchCurve(samples, sampleRate, frameSize = 4096, hopSize = 512) {
   const pitches = [];
   for (let start = 0; start + frameSize <= samples.length; start += hopSize) {
     const frame = samples.slice(start, start + frameSize);
