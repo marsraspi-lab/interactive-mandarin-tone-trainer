@@ -29,6 +29,7 @@ import {
   applyOctaveCorrection,
   applySplineInterpolation,
   normalizeZScore,
+  normalizeWithSharedStats,
   clampValues,
   resampleArray,
   calculateMAEScore,
@@ -169,6 +170,14 @@ function fullPipeline(samples, sampleRate) {
   return resampleArray(clamped, RESAMPLE_LEN);
 }
 
+// Raw pipeline: stops after smoothing, returns Hz values for external normalization
+function fullPipelineRaw(samples, sampleRate) {
+  const raw = extractPitchCurve(samples, sampleRate);
+  const octaveCorrected = applyOctaveCorrection(raw);
+  const interpolated = applySplineInterpolation(octaveCorrected);
+  return applyThreePointSmoothing(interpolated);
+}
+
 // ── Train/Validation Split (deterministic by stem hash) ────────────
 
 function getOrCreateSplit(allStems) {
@@ -240,27 +249,57 @@ function main() {
 
   for (const stem of allStems) {
     const gt = groundTruth[stem];
-    let jsPitch;
+    let jsRaw;
 
     try {
       const { samples, sampleRate } = loadAudio(stem);
-      jsPitch = fullPipeline(samples, sampleRate);
+      jsRaw = fullPipelineRaw(samples, sampleRate);
     } catch (err) {
       console.log(`  ✗ ${stem}: ${err.message}`);
       continue;
     }
 
-    // Z-score normalize ground truth for fair comparison
-    const gtNormalized = normalizeZScore(gt.pitch);
+    // ── Shared Z-score normalization (Option A) ──────────────────
+    // Compute μ/σ from ground truth voiced frames, then normalize
+    // BOTH curves with the same statistics. This prevents unstable
+    // z-scores when the JS pipeline finds few voiced frames.
+    //
+    // Guard: only use shared stats when GT has ≥20 voiced frames.
+    // Below that, the GT's own μ/σ is too unstable to share.
+    const gtVoicedHz = gt.pitch.filter(v => v > 0);
+    const useSharedStats = gtVoicedHz.length >= 20;
+    const gtMean = gtVoicedHz.length > 0
+      ? gtVoicedHz.reduce((a, b) => a + b, 0) / gtVoicedHz.length
+      : 0;
+    const gtVar = gtVoicedHz.length > 1
+      ? gtVoicedHz.reduce((s, v) => s + (v - gtMean) ** 2, 0) / gtVoicedHz.length
+      : 0;
+    const gtStd = Math.sqrt(gtVar);
+
+    let jsNormalized, gtNormalized;
+
+    if (useSharedStats && gtStd > 1e-10) {
+      // Option A: shared normalization
+      jsNormalized = normalizeWithSharedStats(jsRaw, gtMean, gtStd);
+      gtNormalized = normalizeWithSharedStats(gt.pitch, gtMean, gtStd);
+    } else {
+      // Fallback: independent z-score normalization
+      jsNormalized = normalizeZScore(jsRaw);
+      gtNormalized = normalizeZScore(gt.pitch);
+    }
+
+    // Clamp and resample both to 100 points
+    const jsClamped = clampValues(jsNormalized, -3, 3);
     const gtClamped = clampValues(gtNormalized, -3, 3);
+    const jsResampled = resampleArray(jsClamped, RESAMPLE_LEN);
     const gtResampled = resampleArray(gtClamped, RESAMPLE_LEN);
 
     // Compute MAE
-    const maeScore = calculateMAEScore(jsPitch, gtResampled);
-    const rawMae = computeRawMAE(jsPitch, gtResampled);
+    const rawMae = computeRawMAE(jsResampled, gtResampled);
+    const maeScore = calculateMAEScore(jsResampled, gtResampled);
 
     // Voiced frame rate
-    const jsVoiced = jsPitch.filter(v => v !== 0).length;
+    const jsVoiced = jsResampled.filter(v => v !== 0).length;
     const gtVoiced = gtResampled.filter(v => v !== 0).length;
     const voicedRate = (RESAMPLE_LEN - Math.abs(jsVoiced - gtVoiced)) / RESAMPLE_LEN;
 

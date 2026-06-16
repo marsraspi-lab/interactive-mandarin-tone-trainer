@@ -442,6 +442,24 @@ export function normalizeZScore(pitchArray) {
 }
 
 /**
+ * Z-score normalize using external μ and σ (typically from ground truth).
+ * This ensures sparse JS curves and dense ground-truth curves share the
+ * same normalization scale, preventing unstable z-scores when the JS
+ * pipeline finds few voiced frames.
+ *
+ * Zeros (silence) remain 0. Voiced values are transformed by shared μ/σ.
+ *
+ * @param {number[]} pitchArray — sequential pitch values in Hz (0 = silence)
+ * @param {number} mean — external mean (e.g., from ground truth voiced frames)
+ * @param {number} std — external standard deviation
+ * @returns {number[]} Z-score normalized values using shared statistics
+ */
+export function normalizeWithSharedStats(pitchArray, mean, std) {
+  if (std < 1e-10) return new Array(pitchArray.length).fill(0);
+  return pitchArray.map(v => (v > 0 ? (v - mean) / std : 0));
+}
+
+/**
  * Clamp Z-score values to a fixed range to prevent extreme outliers
  * from skewing DTW comparisons. Default range [-3, +3] captures 99.7% of
  * normally-distributed data.
