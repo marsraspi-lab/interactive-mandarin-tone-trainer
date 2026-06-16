@@ -23,7 +23,18 @@ export function detectPitchAMDF(buffer, sampleRate) {
     sumSq += buffer[i] * buffer[i];
   }
   const rms = Math.sqrt(sumSq / buffer.length);
-  if (rms < 0.005) return 0;
+  if (rms < 0.002) return 0;
+
+  // ── Task 1.1: Zero-Crossing Rate Fricative Eraser ──────────────────
+  // Mandarin fricatives ("s", "x", "sh", "ch") are unvoiced high-frequency
+  // noise. ZCR measures how often the signal changes sign per sample.
+  // High ZCR (>0.15) means the energy is in high-frequency noise bands.
+  let zcr = 0;
+  for (let i = 1; i < buffer.length; i++) {
+    if ((buffer[i] >= 0) !== (buffer[i - 1] >= 0)) zcr++;
+  }
+  zcr /= buffer.length;
+  if (zcr > 0.15) return 0;
 
   let bestPeriod = -1;
   let bestDiff = Infinity;
@@ -63,10 +74,10 @@ export function detectPitchAMDF(buffer, sampleRate) {
 }
 
 /**
- * Apply 3-point moving average filter to smooth pitch contours.
- * Eliminates artifacts from plosive consonants (e.g., "p", "t", "k").
- * Formula: f_smooth[i] = (f[i-1] + f[i] + f[i+1]) / 3
- * Endpoints use available neighbors only.
+ * Apply 5-point median filter to smooth pitch contours.
+ * More robust than 3-point moving average for sparse pitch data —
+ * median is insensitive to single-sample outliers and preserves
+ * edges better, critical for tone transitions.
  *
  * @param {number[]} pitchArray — sequential pitch values in Hz
  * @returns {number[]} smoothed pitch array
@@ -75,11 +86,26 @@ export function applyThreePointSmoothing(pitchArray) {
   if (pitchArray.length < 2) return [...pitchArray];
 
   const result = new Array(pitchArray.length);
-  result[0] = (pitchArray[0] + pitchArray[1]) / 2;
-  for (let i = 1; i < pitchArray.length - 1; i++) {
-    result[i] = (pitchArray[i - 1] + pitchArray[i] + pitchArray[i + 1]) / 3;
+
+  for (let i = 0; i < pitchArray.length; i++) {
+    // Collect up to 5 neighbors centered on i, skipping zeros
+    const window = [];
+    for (let j = Math.max(0, i - 2); j <= Math.min(pitchArray.length - 1, i + 2); j++) {
+      if (pitchArray[j] > 0) window.push(pitchArray[j]);
+    }
+    if (window.length === 0) {
+      result[i] = 0;
+    } else if (window.length === 1) {
+      result[i] = window[0];
+    } else {
+      window.sort((a, b) => a - b);
+      const mid = Math.floor(window.length / 2);
+      result[i] = window.length % 2 === 1
+        ? window[mid]
+        : (window[mid - 1] + window[mid]) / 2;
+    }
   }
-  result[pitchArray.length - 1] = (pitchArray[pitchArray.length - 2] + pitchArray[pitchArray.length - 1]) / 2;
+
   return result;
 }
 
@@ -256,4 +282,139 @@ export function evaluateDiagnosticFeedback(userTrack, nativeTrack, tones = []) {
   }
 
   return '';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Post-processing pipeline functions (applied to full pitch arrays)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Apply octave-jump correction using rolling median history.
+ * Prevents AMDF from locking onto the 2nd harmonic (octave-up error)
+ * or subharmonic (octave-down error) in weak-voiced frames.
+ *
+ * Algorithm:
+ *   If |f_new - 2·f_median| < ε  ⇒  f_corrected = f_new / 2   (octave-up error)
+ *   If |f_new - 0.5·f_median| < ε ⇒ f_corrected = f_new * 2   (octave-down error)
+ *   Otherwise, accept f_new and update cache.
+ *
+ * @param {number[]} pitchArray — sequential pitch values in Hz (0 = unvoiced)
+ * @param {number} [cacheSize=3] — rolling history window size
+ * @returns {number[]} octave-corrected pitch array
+ */
+export function applyOctaveCorrection(pitchArray, cacheSize = 3) {
+  const result = new Array(pitchArray.length);
+  const cache = []; // rolling window of verified frequencies
+
+  for (let i = 0; i < pitchArray.length; i++) {
+    const f = pitchArray[i];
+
+    // Pass through zeros (unvoiced frames) unchanged
+    if (f === 0) {
+      result[i] = 0;
+      continue;
+    }
+
+    // Not enough history — accept as-is
+    if (cache.length < 2) {
+      cache.push(f);
+      if (cache.length > cacheSize) cache.shift();
+      result[i] = f;
+      continue;
+    }
+
+    // Compute median of rolling cache
+    const sorted = [...cache].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
+
+    // Epsilon: 5% of median, minimum 5 Hz
+    const epsilon = Math.max(median * 0.05, 5);
+
+    let corrected = f;
+
+    // Check for octave-up error (detected 2nd harmonic instead of fundamental)
+    if (Math.abs(f - 2 * median) < epsilon) {
+      corrected = f / 2;
+    }
+    // Check for octave-down error (detected subharmonic)
+    else if (Math.abs(f - 0.5 * median) < epsilon) {
+      corrected = f * 2;
+    }
+
+    // Reject frames that jump more than an octave from history
+    if (Math.abs(corrected - median) > median * 0.6) {
+      corrected = 0;
+    }
+
+    result[i] = corrected;
+
+    // Update cache with corrected value (only if non-zero)
+    if (corrected > 0) {
+      cache.push(corrected);
+      if (cache.length > cacheSize) cache.shift();
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Fill gaps in pitch contours via Catmull-Rom spline interpolation.
+ * Gaps (zero values) shorter than maxGap are filled by interpolating
+ * between the nearest surrounding voiced frames. Gaps at the edges
+ * (leading/trailing zeros) are left as zero.
+ *
+ * @param {number[]} pitchArray — pitch values in Hz (0 = gap)
+ * @param {number} [maxGap=8] — maximum gap length to fill (longer gaps
+ *   are likely genuine silence between syllables, not detection failures)
+ * @returns {number[]} pitch array with short gaps filled
+ */
+export function applySplineInterpolation(pitchArray, maxGap = 8) {
+  const result = [...pitchArray];
+  const n = result.length;
+
+  let i = 0;
+  while (i < n) {
+    // Skip voiced frames
+    if (result[i] > 0) { i++; continue; }
+
+    // Find start and end of this gap
+    const gapStart = i;
+    while (i < n && result[i] === 0) i++;
+    const gapEnd = i;
+    const gapLen = gapEnd - gapStart;
+
+    // Skip if gap is too long or at edges
+    if (gapLen > maxGap || gapStart === 0 || gapEnd === n) continue;
+
+    // Get surrounding voiced values
+    const before = result[gapStart - 1];
+    const after = result[gapEnd];
+
+    // Linear interpolation between before and after
+    for (let j = 0; j < gapLen; j++) {
+      const t = (j + 1) / (gapLen + 1);
+      result[gapStart + j] = before + (after - before) * t;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Z-score normalize using external μ and σ (typically from ground truth).
+ * This ensures sparse JS curves and dense ground-truth curves share the
+ * same normalization scale, preventing unstable z-scores when the JS
+ * pipeline finds few voiced frames.
+ *
+ * Zeros (silence) remain 0. Voiced values are transformed by shared μ/σ.
+ *
+ * @param {number[]} pitchArray — sequential pitch values in Hz (0 = silence)
+ * @param {number} mean — external mean (e.g., from ground truth voiced frames)
+ * @param {number} std — external standard deviation
+ * @returns {number[]} Z-score normalized values using shared statistics
+ */
+export function normalizeWithSharedStats(pitchArray, mean, std) {
+  if (std < 1e-10) return new Array(pitchArray.length).fill(0);
+  return pitchArray.map(v => (v > 0 ? (v - mean) / std : 0));
 }

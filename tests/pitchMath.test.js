@@ -42,11 +42,12 @@ describe('detectPitchAMDF', () => {
 });
 
 describe('applyThreePointSmoothing', () => {
-  it('dampens a single-sample spike outlier', () => {
+  it('eliminates a single-sample spike (median is outlier-immune)', () => {
     const input = [150, 150, 900, 150, 150];
     const result = applyThreePointSmoothing(input);
-    // f_smooth[2] = (150 + 900 + 150) / 3 = 400
-    expect(result[2]).toBeCloseTo(400, 0);
+    // 5-point median: window around spike is [150,150,900,150,150]
+    // sorted → [150,150,150,150,900], median = 150 (spike erased)
+    expect(result[2]).toBeCloseTo(150, 0);
     expect(result[2]).toBeLessThan(900);
   });
 
@@ -64,15 +65,15 @@ describe('applyThreePointSmoothing', () => {
     expect(result).toEqual([180]);
   });
 
-  it('handles endpoints correctly', () => {
+  it('handles short arrays with full-window median', () => {
     const input = [100, 200, 300];
     const result = applyThreePointSmoothing(input);
-    // i=0: (100 + 200) / 2 = 150
-    // i=1: (100 + 200 + 300) / 3 = 200
-    // i=2: (200 + 300) / 2 = 250
-    expect(result[0]).toBeCloseTo(150, 0);
+    // 3-element array: 5-neighbor window at each position
+    // clips to array bounds → uses all [100,200,300]
+    // sorted → [100,200,300], median = 200 for all positions
+    expect(result[0]).toBeCloseTo(200, 0);
     expect(result[1]).toBeCloseTo(200, 0);
-    expect(result[2]).toBeCloseTo(250, 0);
+    expect(result[2]).toBeCloseTo(200, 0);
   });
 });
 

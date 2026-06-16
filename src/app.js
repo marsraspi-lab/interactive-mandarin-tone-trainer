@@ -8,7 +8,10 @@ import {
   calculateMAEScore,
   evaluateDiagnosticFeedback,
   normalizeZScore,
+  normalizeWithSharedStats,
   clampValues,
+  applyOctaveCorrection,
+  applySplineInterpolation,
 } from './pitchMath.js';
 
 // ── Preset corpus (24 entries, sorted by tone) ──────────────────
@@ -278,18 +281,37 @@ function gradeAttempt() {
 
   const preset = presets[selectedIndex];
 
-  if (!pitchRefs.has(preset.word)) {
+  const refData = pitchRefs.get(preset.word);
+  if (!refData) {
     statusEl.textContent += ' | No pitch reference for this word yet';
     return;
   }
 
-  const nativeRef = pitchRefs.get(preset.word);
+  // Extract reference curve and optional native stats
+  const nativeRef = refData.reference || refData;
+  const nativeMean = refData.nativeMean ?? null;
+  const nativeStd = refData.nativeStd ?? null;
 
-  const zUser = normalizeZScore(userPitchData);
-  const normalizedUser = clampValues(zUser, -3, 3);
+  // ── Improved post-processing pipeline ──────────────────────────
+  // Step 1: Octave-jump correction (rolling median, 3-frame window)
+  const octaveCorrected = applyOctaveCorrection(userPitchData, 3);
+
+  // Step 2: Fill short gaps via linear interpolation (max gap 8 frames)
+  const gapFilled = applySplineInterpolation(octaveCorrected, 8);
+
+  // Step 3: Z-score normalization — shared stats when available
+  let normalizedUser;
+  if (nativeMean != null && nativeStd != null && nativeStd > 1e-10) {
+    normalizedUser = normalizeWithSharedStats(gapFilled, nativeMean, nativeStd);
+  } else {
+    normalizedUser = normalizeZScore(gapFilled);
+  }
+
+  // Step 4: Clamp to [-3, +3]
+  const clampedUser = clampValues(normalizedUser, -3, 3);
 
   const { userAligned, nativeAligned } = computeDynamicTimeWarping(
-    normalizedUser,
+    clampedUser,
     nativeRef,
     100
   );
@@ -315,7 +337,12 @@ async function loadPresets() {
     if (resp.ok) {
       const data = await resp.json();
       for (const p of (data.presets || [])) {
-        pitchRefs.set(p.word, p.nativePitchReference || []);
+        // Store full preset data: reference curve + optional native µ/σ
+        pitchRefs.set(p.word, {
+          reference: p.nativePitchReference || [],
+          nativeMean: p.nativeMean,
+          nativeStd: p.nativeStd,
+        });
       }
     }
   } catch (err) {
