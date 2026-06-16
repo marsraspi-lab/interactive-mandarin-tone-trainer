@@ -2,7 +2,7 @@
 
 **Branch:** `feat/onnx-neural-pitch`  
 **Status:** Built, ready for A/B comparison  
-**Strategy:** Export CREPE-Tiny to ONNX (auto-quantize only if fp32 > 10 MB)  
+**Strategy:** Export CREPE-Tiny to ONNX (1024-sample input @ 16 kHz, auto-quantize only if fp32 > 10 MB)  
 
 ---
 
@@ -30,8 +30,9 @@ CREPE is a convolutional neural network trained on millions of voiced+unvoiced f
 │    │  InferenceSession (onnxruntime-web)      │         │
 │    │  ├─ WebGL backend (GPU accelerated)      │         │
 │    │  ├─ Falls back to WASM (CPU)             │         │
-│    │  └─ Model: crepe_tiny.onnx               │         │
-│    │     (~5-7 MB fp32, or ~1.5 MB if quant)  │         │
+│    │  ├─ Model: crepe_tiny.onnx               │         │
+│    │  ├─ Input: 1024 samples @ 16 kHz         │         │
+│    │  └─ Optional: 60–400 Hz bandpass         │         │
 │    └──────────────────────────────────────────┘         │
 │  else:                                                  │
 │    ┌──────────────────────────────────────────┐         │
@@ -123,7 +124,7 @@ python3 scripts/convert_crepe_onnx.py
 ║   CREPE-Tiny → ONNX Export              ║
 ╚══════════════════════════════════════════╝
    Target: .../src/assets/models/crepe_tiny.onnx
-   Input size: 4096 samples
+   Input size: 1024 samples
 
 📦 Loading CREPE-Tiny model...
    Using torchcrepe package
@@ -159,8 +160,11 @@ The `.venv/` directory can be safely deleted after the model is generated — it
 # AMDF baseline (what the app uses today)
 node scripts/train.js
 
-# Neural comparison
+# Neural comparison (bare)
 node scripts/train.js --neural --voiced-only
+
+# Neural comparison with vocal-range bandpass
+node scripts/train.js --neural --voiced-only --bandpass
 ```
 
 **Flags:**
@@ -168,6 +172,7 @@ node scripts/train.js --neural --voiced-only
 | Flag | Effect |
 |------|--------|
 | `--neural` | Switches evaluation engine to CREPE-Tiny ONNX |
+| `--bandpass` | Applies 60–400 Hz Butterworth bandpass before resampling (neural path only) |
 | `--voiced-only` | Computes MAE only on frames where **both** JS and pYIN detect voice (ignores silence/fricative gaps) — isolates pure pitch-tracking accuracy |
 
 **What to compare:**
@@ -175,6 +180,7 @@ node scripts/train.js --neural --voiced-only
 1. **Aggregate MAE:** Does CREPE drop below the 0.44 AMDF ceiling?
 2. **Fricative words:** shuiguo, xiexie, haizi, jiejie — these are where CREPE's CNN should dominate
 3. **Voiced-only MAE (`--voiced-only`):** When both detectors agree a frame is voiced, how close is CREPE to pYIN? This isolates pure pitch accuracy from voiced/unvoiced decision errors.
+4. **Bandpass effect:** Compare `--neural` vs `--neural --bandpass`. Stripping sub-60 Hz rumble and above-400 Hz harmonics may give CREPE cleaner input, or it may remove spectral cues the CNN was trained to use.
 
 ---
 
@@ -211,9 +217,10 @@ Audio frame (4096 samples, 44.1kHz)
 ### NEURAL path
 
 ```
-Audio frame (4096 samples, 44.1kHz)
-  → Resample to 16kHz (linear interpolation)
-  → ONNX inference (CREPE-Tiny)
+Audio frame (2824 samples @ 44.1kHz = 64ms; hop 441 = 10ms)
+  → Optional: 60–400 Hz Butterworth bandpass (zero-phase)
+  → Resample to 16 kHz (linear interpolation, 2824 → 1024 samples)
+  → ONNX inference (CREPE-Tiny, fp32 or uint8)
   → 360-bin probability vector
   → Weighted top-3 Hz decoding
   → Confidence gate (max prob < 0.3 → return 0)
@@ -237,9 +244,20 @@ Raw pitch curve (Hz)
 
 ## Technical Notes
 
-### Why 4096 samples?
+### CREPE input: 1024 samples @ 16 kHz
 
-93ms at 44.1kHz gives ~9.3 pitch periods at 100 Hz (typical male fundamental). At 2048 samples (~4.6 periods), low male voices can confuse the AMDF lag search — a period multiple aligns better with the buffer than the true period, causing octave errors. 4096 eliminates this. CREPE-Tiny natively accepts variable-length input, so the larger window is just more temporal context for the CNN.
+CREPE-Tiny was trained on 16 kHz audio with 1024-sample windows (64 ms) and 10 ms hops. Our AMDF pipeline runs at 44.1 kHz with 4096-sample windows. To bridge the gap:
+
+1. We extract windows of **2824 samples** at 44.1 kHz (= 2824/44100 = 64 ms)
+2. Optionally pass through a 60–400 Hz Butterworth bandpass (zero-phase)
+3. Resample to 16 kHz via linear interpolation (2824 → 1024 samples)
+4. Feed the exact 1024-sample tensor to the ONNX model
+
+The 10 ms hop at 44.1 kHz is 441 samples. This produces roughly the same number of pitch frames as the AMDF pipeline's 512-sample hop at 44.1 kHz (11.6 ms).
+
+### Why 4096 samples (AMDF path)?
+
+93ms at 44.1kHz gives ~9.3 pitch periods at 100 Hz (typical male fundamental). At 2048 samples (~4.6 periods), low male voices can confuse the AMDF lag search — a period multiple aligns better with the buffer than the true period, causing octave errors. 4096 eliminates this. This only applies to the AMDF path — the neural path uses its own window size.
 
 ### Model size
 

@@ -18,7 +18,7 @@ import os
 import sys
 
 # ── Configuration ──────────────────────────────────────────────────
-INPUT_SIZE = 4096        # Matches our verified 93ms audio frame
+INPUT_SIZE = 1024        # CREPE-Tiny's native input size (64ms @ 16kHz)
 OUTPUT_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "src", "assets", "models", "crepe_tiny.onnx"
@@ -72,7 +72,7 @@ def export_onnx():
             print("   Or: pip install crepe-pytorch")
             sys.exit(1)
 
-    # Create dummy input matching our verified 4096-sample frame
+    # Create dummy input matching CREPE's native 1024-sample window at 16 kHz
     dummy_input = torch.randn(1, INPUT_SIZE)
 
     print(f"   Exporting to ONNX (input shape: [1, {INPUT_SIZE}])...")

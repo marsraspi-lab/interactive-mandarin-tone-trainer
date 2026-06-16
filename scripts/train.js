@@ -85,6 +85,54 @@ function resample16k(buffer, sourceRate) {
   return out;
 }
 
+// ── Butterworth bandpass filter (60–400 Hz, 2nd-order, zero-phase) ──
+
+/**
+ * Design a 2nd-order Butterworth bandpass biquad via bilinear transform.
+ * Passband 60–400 Hz covers the full Mandarin vocal range.
+ * Applied forward-then-backward for zero phase distortion.
+ *
+ * @param {Float32Array} buffer — input samples at sourceRate
+ * @param {number} sampleRate — original sample rate (e.g. 44100)
+ * @returns {Float32Array} filtered buffer (same length)
+ */
+function applyBandpassFilter(buffer, sampleRate) {
+  const lo = 60, hi = 400;
+  const wLo = 2 * Math.PI * lo / sampleRate;
+  const wHi = 2 * Math.PI * hi / sampleRate;
+  const bw = wHi - wLo;
+  const w0 = Math.sqrt(wLo * wHi);
+  const alpha = Math.sin(bw / 2);     // bandwidth in octaves ≈ 2.7
+  const cosw0 = Math.cos(w0);
+
+  // Biquad coefficients (RBJ cookbook, peak gain = 1)
+  const b0 = alpha, b1 = 0, b2 = -alpha;
+  const a0 = 1 + alpha, a1 = -2 * cosw0, a2 = 1 - alpha;
+  const bn = [b0 / a0, b1 / a0, b2 / a0];
+  const an = [a1 / a0, a2 / a0];
+
+  // Forward pass
+  const fwd = new Float32Array(buffer.length);
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+  for (let i = 0; i < buffer.length; i++) {
+    const y = bn[0] * buffer[i] + bn[1] * x1 + bn[2] * x2 - an[0] * y1 - an[1] * y2;
+    fwd[i] = y;
+    x2 = x1; x1 = buffer[i];
+    y2 = y1; y1 = y;
+  }
+
+  // Backward pass (zero-phase)
+  const out = new Float32Array(buffer.length);
+  x1 = 0; x2 = 0; y1 = 0; y2 = 0;
+  for (let i = buffer.length - 1; i >= 0; i--) {
+    const y = bn[0] * fwd[i] + bn[1] * x1 + bn[2] * x2 - an[0] * y1 - an[1] * y2;
+    out[i] = y;
+    x2 = x1; x1 = fwd[i];
+    y2 = y1; y1 = y;
+  }
+  return out;
+}
+
 let ortNeuralSession = null;
 
 /**
@@ -104,22 +152,20 @@ async function initNeuralSession() {
 
 /**
  * Neural pitch detector — wraps CREPE-Tiny ONNX inference.
- * Resamples the 44.1kHz frame to 16kHz before inference.
  *
- * @param {Float32Array} buffer — 4096-sample audio frame at 44.1kHz
- * @param {number} sampleRate — original sample rate
+ * The input buffer is already a 1024-sample window at 16 kHz.
+ * If bandpass is enabled, the caller applies the filter BEFORE resampling.
+ *
+ * @param {Float32Array} buffer — 1024-sample audio window at 16 kHz
  * @returns {Promise<number>} detected frequency in Hz, or 0
  */
-async function detectPitchNeural(buffer, sampleRate) {
+async function detectPitchNeural(buffer) {
   if (!ortNeuralSession) return 0;
 
   try {
-    // Resample to CREPE's native 16kHz
-    const resampled = resample16k(buffer, sampleRate);
-
-    // Run ONNX inference
+    const ort = await import('onnxruntime-node');
     const feeds = {
-      input_audio: new (await import('onnxruntime-node')).Tensor('float32', resampled, [1, resampled.length])
+      input_audio: new ort.Tensor('float32', buffer, [1, NEURAL_WIN_16K])
     };
     const results = await ortNeuralSession.run(feeds);
     const probs = results.pitch_probabilities.data;
@@ -143,6 +189,14 @@ const SPLIT_PATH = resolve(DATA_DIR, 'train-split.json');
 const FRAME_SIZE = 4096;
 const HOP_SIZE = 512;
 const RESAMPLE_LEN = 100;
+
+// Neural-engine constants (CREPE-Tiny ONNX)
+// CREPE operates at 16 kHz with 1024-sample windows (64 ms) and 10 ms hop.
+// We extract windows at 44.1 kHz, resample to 16 kHz, then feed to CREPE.
+const NEURAL_WIN_44K = 2824;   // 1024 * 44100/16000 ≈ 2822.4 → round to 2824
+const NEURAL_HOP_44K = 441;    // 0.010 * 44100 = 441 (10 ms at 44.1 kHz)
+const NEURAL_WIN_16K = 1024;   // CREPE's native input size
+const NEURAL_HOP_16K = 160;    // CREPE's native hop (10 ms at 16 kHz)
 
 // ── WAV parser (same as ingestPresets.js) ──────────────────────────
 
@@ -324,15 +378,17 @@ function main() {
   const args = process.argv.slice(2);
   const useNeural = args.includes('--neural');
   const voicedOnly = args.includes('--voiced-only');
+  const useBandpass = args.includes('--bandpass');
 
   if (useNeural) {
     console.log('╔══════════════════════════════════════════╗');
     console.log('║   AUTORESEARCH — Training Evaluation    ║');
     console.log('╚══════════════════════════════════════════╝');
     console.log('   Detector: CREPE-Tiny (neural)');
+    if (useBandpass) console.log('   Pre-filter: 60–400 Hz bandpass');
     if (voicedOnly) console.log('   MAE mode: voiced-only (JS>0 ∩ pYIN>0)');
     console.log('');
-    mainNeural(voicedOnly);
+    mainNeural(voicedOnly, useBandpass);
     return;
   }
 
@@ -553,7 +609,7 @@ function makeBar(score) {
 
 // ── Neural evaluation loop (async, --neural flag) ────────────────────
 
-async function mainNeural(voicedOnly) {
+async function mainNeural(voicedOnly, useBandpass) {
   // Initialize ONNX session
   try {
     await initNeuralSession();
@@ -566,7 +622,8 @@ async function mainNeural(voicedOnly) {
   const allStems = Object.keys(groundTruth);
   const split = getOrCreateSplit(allStems);
   console.log(`📊 Ground truth: ${allStems.length} words loaded`);
-  console.log(`📂 Split: ${split.train.length} train / ${split.val.length} validation\n`);
+  console.log(`📂 Split: ${split.train.length} train / ${split.val.length} validation`);
+  console.log(`   Window: ${NEURAL_WIN_44K}@44.1kHz → ${NEURAL_WIN_16K}@16kHz │ Hop: ${NEURAL_HOP_44K} → ${NEURAL_HOP_16K}\n`);
 
   const results = {};
 
@@ -576,11 +633,26 @@ async function mainNeural(voicedOnly) {
     try {
       const { samples, sampleRate } = loadAudio(stem);
 
-      // Neural pitch curve extraction (async per frame)
+      // Neural pitch curve extraction
+      // Step 1: extract 44.1kHz windows → resample to 16kHz → ONNX inference
       const rawPitches = [];
-      for (let start = 0; start + FRAME_SIZE <= samples.length; start += HOP_SIZE) {
-        const frame = samples.slice(start, start + FRAME_SIZE);
-        const pitch = await detectPitchNeural(frame, sampleRate);
+      for (let start = 0; start + NEURAL_WIN_44K <= samples.length; start += NEURAL_HOP_44K) {
+        let frame = samples.slice(start, start + NEURAL_WIN_44K);
+
+        // Optional bandpass (before resampling — operates at source rate)
+        if (useBandpass) {
+          frame = applyBandpassFilter(frame, sampleRate);
+        }
+
+        // Resample to 16 kHz (NEURAL_WIN_44K → NEURAL_WIN_16K)
+        const frame16k = resample16k(frame, sampleRate);
+        // Ensure exact 1024 length (rounding may yield 1023 or 1025)
+        const exact = new Float32Array(NEURAL_WIN_16K);
+        for (let i = 0; i < NEURAL_WIN_16K; i++) {
+          exact[i] = i < frame16k.length ? frame16k[i] : 0;
+        }
+
+        const pitch = await detectPitchNeural(exact);
         rawPitches.push(pitch);
       }
 
