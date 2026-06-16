@@ -39,7 +39,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(__dirname, '..');
 const AUDIO_DIR = resolve(PROJECT_ROOT, 'src', 'assets', 'audio');
 const DATA_DIR = resolve(PROJECT_ROOT, 'data');
-const GROUND_TRUTH_PATH = resolve(DATA_DIR, 'ground-truth.json');
+const CONSENSUS_MODE = process.argv.includes('--consensus');
+const GROUND_TRUTH_PATH = CONSENSUS_MODE
+  ? resolve(DATA_DIR, 'ground-truth-consensus.json')
+  : resolve(DATA_DIR, 'ground-truth.json');
 const VALIDATION_DIR = resolve(DATA_DIR, 'validation-male');
 const RATING_PATH = resolve(VALIDATION_DIR, 'rating.txt');
 const SPLIT_PATH = resolve(DATA_DIR, 'train-split.json');
@@ -228,7 +231,7 @@ function loadRatings() {
 
 function main() {
   console.log('╔══════════════════════════════════════════╗');
-  console.log('║   AUTORESEARCH — Training Evaluation    ║');
+  console.log(`║   AUTORESEARCH — ${CONSENSUS_MODE ? 'CONSENSUS GT' : 'Training Evaluation'}    ║`);
   console.log('╚══════════════════════════════════════════╝\n');
 
   // Load ground truth
