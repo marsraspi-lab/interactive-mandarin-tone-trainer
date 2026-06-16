@@ -451,3 +451,262 @@ export function normalizeWithSharedStats(pitchArray, mean, std) {
   if (std < 1e-10) return new Array(pitchArray.length).fill(0);
   return pitchArray.map(v => (v > 0 ? (v - mean) / std : 0));
 }
+
+/**
+ * Apply forward-backward exponential moving average (zero-phase filter)
+ * to a pitch contour. Runs EMA forward, then backward, achieving
+ * smoothing with zero phase lag — critical for preserving tone transition
+ * timing while suppressing noise spikes.
+ *
+ * Zeros (unvoiced frames) are passed through unchanged and do not
+ * contaminate neighboring voiced frames.
+ *
+ * @param {number[]} pitchArray — pitch values in Hz (0 = unvoiced)
+ * @param {number} [alpha=0.3] — smoothing factor (0 = no smoothing, 1 = no memory)
+ * @returns {number[]} smoothed pitch array
+ */
+export function applyForwardBackwardEMA(pitchArray, alpha = 0.3) {
+  const n = pitchArray.length;
+  if (n < 2) return [...pitchArray];
+
+  // Forward pass
+  const forward = new Array(n);
+  forward[0] = pitchArray[0];
+  for (let i = 1; i < n; i++) {
+    if (pitchArray[i] === 0) {
+      forward[i] = 0; // don't smooth into silence
+    } else if (forward[i - 1] === 0) {
+      forward[i] = pitchArray[i];
+    } else {
+      forward[i] = alpha * pitchArray[i] + (1 - alpha) * forward[i - 1];
+    }
+  }
+
+  // Backward pass
+  const result = new Array(n);
+  result[n - 1] = forward[n - 1];
+  for (let i = n - 2; i >= 0; i--) {
+    if (forward[i] === 0) {
+      result[i] = 0;
+    } else if (result[i + 1] === 0) {
+      result[i] = forward[i];
+    } else {
+      result[i] = alpha * forward[i] + (1 - alpha) * result[i + 1];
+    }
+  }
+
+  return result;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Butterworth bandpass filter — pre-processing for AMDF/YIN
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * 2nd-order Butterworth biquad filter section.
+ * Implements the transposed direct form II for numerical stability.
+ *
+ * @param {Float32Array} input — input samples
+ * @param {Float32Array} output — output buffer (pre-allocated, same length)
+ * @param {number[]} b — feedforward coefficients [b0, b1, b2]
+ * @param {number[]} a — feedback coefficients [a0, a1, a2]
+ */
+function biquadFilter(input, output, b, a) {
+  // Normalize coefficients by a0
+  const b0 = b[0] / a[0], b1 = b[1] / a[0], b2 = b[2] / a[0];
+  const a1 = a[1] / a[0], a2 = a[2] / a[0];
+
+  let w1 = 0, w2 = 0; // delay line (transposed form II)
+  for (let i = 0; i < input.length; i++) {
+    const x = input[i];
+    const y = b0 * x + w1;
+    w1 = b1 * x - a1 * y + w2;
+    w2 = b2 * x - a2 * y;
+    output[i] = y;
+  }
+}
+
+/**
+ * Design a 2nd-order Butterworth biquad section.
+ * Uses the Audio EQ Cookbook formulas (RBJ).
+ *
+ * @param {string} type — 'lowpass', 'highpass', or 'bandpass'
+ * @param {number} fc — cutoff/center frequency in Hz
+ * @param {number} fs — sample rate in Hz
+ * @param {number} [Q=0.7071] — quality factor (Butterworth default)
+ * @returns {{ b: number[], a: number[] }} biquad coefficients
+ */
+function designBiquad(type, fc, fs, Q = 0.7071) {
+  const w0 = 2 * Math.PI * fc / fs;
+  const cosW = Math.cos(w0);
+  const sinW = Math.sin(w0);
+  const alpha = sinW / (2 * Q);
+
+  let b0, b1, b2, a0, a1, a2;
+
+  if (type === 'lowpass') {
+    b0 = (1 - cosW) / 2;
+    b1 = 1 - cosW;
+    b2 = (1 - cosW) / 2;
+    a0 = 1 + alpha;
+    a1 = -2 * cosW;
+    a2 = 1 - alpha;
+  } else if (type === 'highpass') {
+    b0 = (1 + cosW) / 2;
+    b1 = -(1 + cosW);
+    b2 = (1 + cosW) / 2;
+    a0 = 1 + alpha;
+    a1 = -2 * cosW;
+    a2 = 1 - alpha;
+  } else {
+    // bandpass (constant skirt gain, peak gain = Q)
+    b0 = sinW / 2;
+    b1 = 0;
+    b2 = -sinW / 2;
+    a0 = 1 + alpha;
+    a1 = -2 * cosW;
+    a2 = 1 - alpha;
+  }
+
+  return {
+    b: [b0, b1, b2],
+    a: [a0, a1, a2],
+  };
+}
+
+/**
+ * Apply a 4th-order Butterworth bandpass filter (60–400 Hz) to an
+ * audio buffer. Uses two cascaded 2nd-order sections.
+ *
+ * This strips high-frequency fricative noise (>1000 Hz from "sh", "x",
+ * "ch") before AMDF analysis, leaving only the underlying vocal
+ * resonance in the 60–400 Hz band.
+ *
+ * @param {Float32Array} buffer — time-domain audio samples
+ * @param {number} sampleRate — samples per second
+ * @returns {Float32Array} filtered buffer (new copy)
+ */
+export function applyButterworthBandpass(buffer, sampleRate) {
+  const N = buffer.length;
+
+  // Design 2nd-order highpass at 60 Hz and lowpass at 400 Hz
+  const hp = designBiquad('highpass', 60, sampleRate);
+  const lp = designBiquad('lowpass', 400, sampleRate);
+
+  // First stage: highpass → tmp
+  const tmp = new Float32Array(N);
+  biquadFilter(buffer, tmp, hp.b, hp.a);
+
+  // Second stage: lowpass → output
+  const out = new Float32Array(N);
+  biquadFilter(tmp, out, lp.b, lp.a);
+
+  return out;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// YIN pitch detector — drop-in replacement for detectPitchAMDF
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Detect fundamental frequency using the YIN algorithm.
+ *
+ * YIN improves on AMDF by applying cumulative mean normalization to the
+ * difference function, which prevents subharmonic (octave-down) errors
+ * and handles low-SNR voiced frames (fricatives, nasals) significantly
+ * better than raw AMDF.
+ *
+ * Algorithm (de Cheveigné & Kawahara, 2002):
+ *   1. Compute squared difference function d(τ) = Σ(x[i] - x[i+τ])²
+ *   2. Cumulative mean normalization: d'(τ) = d(τ) / mean(d[1..τ])
+ *      (d'(0) = 1 by convention)
+ *   3. Find absolute minimum of d'(τ) in the search range
+ *   4. Parabolic interpolation around the minimum for sub-sample τ
+ *   5. f₀ = sampleRate / τ
+ *
+ * Cumulative mean normalization is the key innovation: as τ increases,
+ * the running mean of d(τ) also increases (more samples, more noise),
+ * so d'(τ) tends toward 1 for non-periodic lags. Only at true period
+ * lags does d'(τ) dip significantly below 1.
+ *
+ * @param {Float32Array} buffer — time-domain audio samples
+ * @param {number} sampleRate — samples per second (e.g. 44100)
+ * @param {number} [threshold=0.15] — YIN voicing threshold (lower = stricter)
+ * @returns {number} detected frequency in Hz, or 0 if no voice detected
+ */
+export function detectPitchYIN(buffer, sampleRate, threshold = 0.15) {
+  const MIN_FREQ = 60;
+  const MAX_FREQ = 400;
+  const MIN_PERIOD = Math.floor(sampleRate / MAX_FREQ);
+  const MAX_PERIOD = Math.floor(sampleRate / MIN_FREQ);
+  const N = buffer.length;
+
+  // ── Silence gate ──────────────────────────────────────────────
+  let sumSq = 0;
+  for (let i = 0; i < N; i++) sumSq += buffer[i] * buffer[i];
+  const rms = Math.sqrt(sumSq / N);
+  if (rms < 0.001) return 0;
+
+  // NOTE: No ZCR fricative gate for YIN — cumulative mean normalization
+  // inherently damps non-periodic signals to d'(τ) ≈ 1, so the
+  // periodicity gate naturally rejects fricatives without a separate
+  // heuristic. Adding ZCR would double-reject borderline frames.
+
+  // ── Step 1: Squared difference function d(τ) ──────────────────
+  // Pre-allocate for MAX_PERIOD+1 entries
+  const d = new Float64Array(MAX_PERIOD + 1);
+  for (let tau = 0; tau <= MAX_PERIOD; tau++) {
+    let sum = 0;
+    for (let i = 0; i < N - tau; i++) {
+      const diff = buffer[i] - buffer[i + tau];
+      sum += diff * diff;
+    }
+    d[tau] = sum;
+  }
+
+  // ── Step 2: Cumulative mean normalized difference d'(τ) ───────
+  d[0] = 1; // by convention
+  let runningSum = 0;
+  for (let tau = 1; tau <= MAX_PERIOD; tau++) {
+    runningSum += d[tau];
+    d[tau] = d[tau] / (runningSum / tau);
+  }
+
+  // ── Step 3: Absolute minimum in [MIN_PERIOD, MAX_PERIOD] ──────
+  // YIN's d'(τ) values for periodic signals are << 0.1.
+  // We find the global minimum rather than first-dip-below-threshold
+  // because on real speech with noise, the first dip can be a
+  // subharmonic. The absolute minimum is more reliable here.
+  let bestTau = -1;
+  let bestVal = Infinity;
+  for (let tau = MIN_PERIOD; tau <= MAX_PERIOD; tau++) {
+    if (d[tau] < bestVal) {
+      bestVal = d[tau];
+      bestTau = tau;
+    }
+  }
+
+  // ── Periodicity gate ──────────────────────────────────────────
+  // If the best d'(τ) is still > 0.2, the signal lacks clear periodicity
+  if (bestTau < 0 || bestVal > 0.2) return 0;
+
+  // ── Step 4: Parabolic interpolation ───────────────────────────
+  let period = bestTau;
+  if (bestTau > MIN_PERIOD && bestTau < MAX_PERIOD) {
+    const dPrev = d[bestTau - 1];
+    const dCurr = d[bestTau];
+    const dNext = d[bestTau + 1];
+    // Parabolic vertex: offset = 0.5 * (dNext - dPrev) / (2*dCurr - dPrev - dNext)
+    const denom = 2 * dCurr - dPrev - dNext;
+    if (Math.abs(denom) > 1e-12) {
+      const offset = 0.5 * (dNext - dPrev) / denom;
+      period = bestTau + offset;
+    }
+  }
+
+  // ── Step 5: Convert period to frequency ───────────────────────
+  const frequency = sampleRate / period;
+  if (frequency < MIN_FREQ || frequency > MAX_FREQ) return 0;
+
+  return frequency;
+}

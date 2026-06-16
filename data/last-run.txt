@@ -1,0 +1,63 @@
+╔══════════════════════════════════════════╗
+║   AUTORESEARCH — Training Evaluation    ║
+╚══════════════════════════════════════════╝
+
+📊 Ground truth: 24 words loaded
+
+📂 Split: 17 train / 7 validation
+
+  ma1        │ ██████████████████░░  88% │ MAE=0.243 │ TRAIN
+  ma2        │ ████████████████░░░░  78% │ MAE=0.444 │ TRAIN
+  ma3        │ ████████████████░░░░  79% │ MAE=0.426 │ TRAIN
+  ma4        │ ██████████████████░░  92% │ MAE=0.164 │ TRAIN
+  diannao    │ ███████████████████░  94% │ MAE=0.124 │ TRAIN
+  gege       │ ██████████████████░░  92% │ MAE=0.153 │ VAL
+  gongsi     │ ██████████████████░░  90% │ MAE=0.204 │ VAL
+  haizi      │ █████████████░░░░░░░  65% │ MAE=0.692 │ TRAIN
+  hanyu      │ ███████████████████░  95% │ MAE=0.094 │ TRAIN
+  jichang    │ ███████████████████░  93% │ MAE=0.130 │ VAL
+  jiejie     │ ██████████████░░░░░░  70% │ MAE=0.601 │ VAL
+  jinnian    │ █████████████████░░░  85% │ MAE=0.297 │ TRAIN
+  jintian    │ ███████████████░░░░░  74% │ MAE=0.518 │ TRAIN
+  jinzhang   │ ███████████████████░  96% │ MAE=0.084 │ TRAIN
+  jueding    │ █████████████████░░░  87% │ MAE=0.264 │ TRAIN
+  laoshi     │ ████████████████░░░░  78% │ MAE=0.439 │ TRAIN
+  luxing     │ ██████████████░░░░░░  71% │ MAE=0.586 │ TRAIN
+  mingnian   │ ████████████████░░░░  80% │ MAE=0.400 │ TRAIN
+  pingguo    │ ██████████████████░░  91% │ MAE=0.177 │ TRAIN
+  shuiguo    │ ███████████████░░░░░  74% │ MAE=0.518 │ VAL
+  wenti      │ ███████████████████░  96% │ MAE=0.084 │ TRAIN
+  xiexie     │ ██████████████░░░░░░  72% │ MAE=0.552 │ VAL
+  yinhang    │ ███████████████████░  93% │ MAE=0.141 │ VAL
+  zaijian    │ ███████████████████░  95% │ MAE=0.093 │ TRAIN
+
+═══════════════════════════════════════════
+  AGGREGATE RESULTS
+═══════════════════════════════════════════
+  Path A: Reference MAE (train)   = 0.3017
+  Path A: MAE Score (train)       = 84.9%
+  Path A: MAE Score (all words)   = 84.5%
+  Path A: Raw MAE  (all words)    = 0.3095
+───────────────────────────────────────────
+  Path B: Validation MAE          = 0.3287
+  Path B: Generalization Gap      = 0.0270 (8.9%)
+  Path B: Validation Score        = 83.4%
+───────────────────────────────────────────
+  Path C: Human Alignment         = 11/11 (100.0%)
+    ma1: PERFECT → score=88% ✓
+    ma2: PERFECT → score=78% ✓
+    ma4: PERFECT → score=92% ✓
+    hanyu: PERFECT → score=95% ✓
+    jinzhang: PERFECT → score=96% ✓
+    wenti: PERFECT → score=96% ✓
+    zaijian: PERFECT → score=95% ✓
+    diannao: PERFECT → score=94% ✓
+    gongsi: PERFECT → score=90% ✓
+    yinhang: PERFECT → score=93% ✓
+    mingnian: PERFECT → score=80% ✓
+═══════════════════════════════════════════
+
+  ACCEPTANCE CRITERIA:
+    MAE ≤ 0.15:      ❌ FAIL (0.310)
+    Val Gap ≤ 5%:     ❌ FAIL (8.9%)
+    Human Align:      ✅ PASS
