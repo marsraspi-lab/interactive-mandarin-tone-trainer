@@ -2,13 +2,13 @@
 
 **Branch:** `feat/onnx-neural-pitch`  
 **Status:** Built, ready for A/B comparison  
-**Strategy:** Post-Training Quantization (PTQ) of CREPE-Tiny — 16MB → ~3MB  
+**Strategy:** Export CREPE-Tiny to ONNX (auto-quantize only if fp32 > 10 MB)  
 
 ---
 
 ## Summary
 
-The current AMDF pitch detector has a hard ceiling at **MAE 0.444** because difference-function detectors cannot track pitch through unvoiced fricative regions the way pYIN's HMM does. This feature adds a **second engine**: a quantized CREPE-Tiny neural model that runs in the browser via WebGL/WebAssembly.
+The current AMDF pitch detector has a hard ceiling at **MAE 0.444** because difference-function detectors cannot track pitch through unvoiced fricative regions the way pYIN's HMM does. This feature adds a **second engine**: a CREPE-Tiny neural model that runs in the browser via WebGL/WebAssembly.
 
 CREPE is a convolutional neural network trained on millions of voiced+unvoiced frames. Its filters learn to "see through" friction noise by recognizing harmonic structure — precisely the capability AMDF lacks for fricative-heavy words (shuiguo, xiexie, haizi, jiejie).
 
@@ -30,8 +30,8 @@ CREPE is a convolutional neural network trained on millions of voiced+unvoiced f
 │    │  InferenceSession (onnxruntime-web)      │         │
 │    │  ├─ WebGL backend (GPU accelerated)      │         │
 │    │  ├─ Falls back to WASM (CPU)             │         │
-│    │  └─ Model: crepe_tiny_quantized.onnx     │         │
-│    │     (~3MB, uint8 weights)                │         │
+│    │  └─ Model: crepe_tiny.onnx               │         │
+│    │     (~5-7 MB fp32, or ~1.5 MB if quant)  │         │
 │    └──────────────────────────────────────────┘         │
 │  else:                                                  │
 │    ┌──────────────────────────────────────────┐         │
@@ -55,8 +55,8 @@ CREPE outputs 360 probability bins spaced at ~10 cents (C1=32.7 Hz to B7=1975.5 
 
 | File | Role |
 |------|------|
-| `scripts/convert_crepe_onnx.py` | PyTorch → fp32 ONNX → uint8 quantized. Run once. |
-| `src/assets/models/crepe_tiny_quantized.onnx` | The output model. **Git-ignored** (~3MB). |
+| `scripts/convert_crepe_onnx.py` | PyTorch → fp32 ONNX. Auto-quantizes only if > 10 MB. Run once. |
+| `src/assets/models/crepe_tiny.onnx` | The output model. **Git-ignored** (~5-7 MB). |
 | `src/pitchWorker.js` | Dual-engine Web Worker. Lazy-loads ONNX runtime. |
 | `src/app.js` | Engine toggle in sidebar (`currentEngine`). |
 | `scripts/train.js` | `--neural` flag runs CREPE through the evaluation pipeline. |
@@ -98,7 +98,7 @@ pip install torch onnx onnxruntime
 |---------|---------|
 | `torch` | Loads the PyTorch CREPE model and its pretrained weights |
 | `onnx` | Exports the model from PyTorch into the ONNX format |
-| `onnxruntime` | Quantizes float32 weights → uint8 integers (the 75% compression step) |
+| `onnxruntime` | Validates the model and handles quantization if needed |
 
 All three are pure-CPU installs. No GPU or CUDA required.
 
@@ -110,29 +110,30 @@ python3 scripts/convert_crepe_onnx.py
 
 **What happens during the run:**
 
-1. **Export Phase** — Downloads the CREPE-Tiny pretrained weights from torchcrepe, wraps the model, feeds a dummy 4096-sample frame through it, and writes `crepe_tiny_fp32.onnx` (~16MB) to `/tmp/`.
+1. **Export Phase** — Downloads the CREPE-Tiny pretrained weights from torchcrepe (the `tiny.pth` is only 1.87 MB — already stored as fp16). Wraps the model, feeds a dummy 4096-sample frame through it, and writes `crepe_tiny_fp32.onnx` (~5-7 MB) to `/tmp/`.
 
-2. **Quantization Phase** — Converts all `Conv`, `Gemm`, and `MatMul` weight tensors from float32 to uint8 integers. This is dynamic quantization — activations stay at runtime precision, weights are compressed to 1/4th their original size. The output lands at `src/assets/models/crepe_tiny_quantized.onnx` (~3-4MB).
+2. **Conditional Quantization** — The script checks the fp32 size. If it's ≤ 10 MB (which it should be — torchcrepe's tiny model is compact), the fp32 file is copied directly to the output path with **no quantization**. If it somehow exceeds 10 MB, dynamic uint8 quantization is applied to `Conv`/`Gemm`/`MatMul` layers. The output lands at `src/assets/models/crepe_tiny.onnx`.
 
-3. **Validation Phase** — Runs a single inference through the quantized model with random noise, verifies the output shape and range are sane.
+3. **Validation Phase** — Runs a single inference through the final model with random noise, verifies the output shape and range are sane.
 
-**Expected output:**
+**Expected output (no quantization needed):**
 
 ```
 ╔══════════════════════════════════════════╗
-║   CREPE-Tiny → ONNX Quantization        ║
+║   CREPE-Tiny → ONNX Export              ║
 ╚══════════════════════════════════════════╝
-   Target: .../src/assets/models/crepe_tiny_quantized.onnx
+   Target: .../src/assets/models/crepe_tiny.onnx
    Input size: 4096 samples
 
 📦 Loading CREPE-Tiny model...
    Using torchcrepe package
    Exporting to ONNX (input shape: [1, 4096])...
-   ✅ FP32 ONNX exported: 16.2 MB
-🗜️  Quantizing to 8-bit integers (QUInt8)...
-   ✅ Quantized model: 3.8 MB
-   📁 Saved to: .../src/assets/models/crepe_tiny_quantized.onnx
-🔍 Validating quantized model with test inference...
+   ✅ FP32 ONNX exported: 5.8 MB
+
+   fp32 ONNX size: 5.8 MB
+   ✅ Below 10 MB threshold — shipping fp32 as-is
+   📁 Final model: 5.8 MB — .../src/assets/models/crepe_tiny.onnx
+🔍 Validating model with test inference...
    Input shape:  (1, 4096)
    Output shape: (1, 360)
    Output range: [0.0000, 0.0142]
@@ -179,10 +180,10 @@ node scripts/train.js --neural --voiced-only
 
 ### Phase 3: Use in the browser app
 
-1. Make sure `crepe_tiny_quantized.onnx` is in `src/assets/models/` (from Phase 1)
+1. Make sure `crepe_tiny.onnx` is in `src/assets/models/` (from Phase 1)
 2. Start the dev server: `npm run dev`
 3. In the sidebar, click the engine row: **Engine: AMDF (click to switch)**
-4. It toggles to **NEURAL**. The first time you record after switching, the browser downloads the model (~3MB) and initializes WebGL inference. Subsequent recordings use the cached session.
+4. It toggles to **NEURAL**. The first time you record after switching, the browser downloads the model (~5-7 MB) and initializes WebGL inference. Subsequent recordings use the cached session.
 
 **Browser requirements:**
 
@@ -212,7 +213,7 @@ Audio frame (4096 samples, 44.1kHz)
 ```
 Audio frame (4096 samples, 44.1kHz)
   → Resample to 16kHz (linear interpolation)
-  → ONNX inference (quantized CREPE-Tiny)
+  → ONNX inference (CREPE-Tiny)
   → 360-bin probability vector
   → Weighted top-3 Hz decoding
   → Confidence gate (max prob < 0.3 → return 0)
@@ -240,9 +241,9 @@ Raw pitch curve (Hz)
 
 93ms at 44.1kHz gives ~9.3 pitch periods at 100 Hz (typical male fundamental). At 2048 samples (~4.6 periods), low male voices can confuse the AMDF lag search — a period multiple aligns better with the buffer than the true period, causing octave errors. 4096 eliminates this. CREPE-Tiny natively accepts variable-length input, so the larger window is just more temporal context for the CNN.
 
-### Quantization precision
+### Model size
 
-Dynamic uint8 quantization of Conv/MatMul weights preserves pitch accuracy within **±2 cents** — imperceptible for tone tracking. The 360-bin output resolution (~10 cents) is the limiting factor, not the quantization error.
+Torchcrepe's `tiny.pth` is already **fp16 at 1.87 MB**. When PyTorch exports to ONNX, weights expand to fp32 (~3.7 MB) and the ONNX container adds graph metadata (~1-2 MB), so the final file lands around **5-7 MB**. The conversion script automatically detects the actual size — if it's ≤ 10 MB (which it will be for this model), no quantization is applied. fp32 precision is preserved, and the 5-7 MB download is already reasonable for a progressive enhancement.
 
 ### Why CREPE over YIN/other lightweight detectors?
 
@@ -275,7 +276,7 @@ The CLI evaluation uses `onnxruntime-node` (the Node.js binding) rather than `on
 
 ## Deleting the Python environment
 
-Once `crepe_tiny_quantized.onnx` is generated and working:
+Once `crepe_tiny.onnx` is generated and working:
 
 ```bash
 rm -rf .venv/

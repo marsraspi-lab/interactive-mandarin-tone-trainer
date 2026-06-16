@@ -88,7 +88,7 @@ async function initNeuralEngine() {
     const { InferenceSession, Tensor } = await import('onnxruntime-web');
 
     ortSession = await InferenceSession.create(
-      '/models/crepe_tiny_quantized.onnx',
+      '/models/crepe_tiny.onnx',
       {
         executionProviders: ['webgl', 'wasm'],
         graphOptimizationLevel: 'all',

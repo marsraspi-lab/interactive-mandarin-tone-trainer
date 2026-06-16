@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-Convert a PyTorch CREPE-Tiny model to a quantized ONNX file (~3-4MB)
-suitable for browser inference via onnxruntime-web.
+Convert a PyTorch CREPE-Tiny model to an ONNX file for browser inference
+via onnxruntime-web.
 
 Usage:
-    pip install torch onnx onnxruntime
+    pip install torch onnx onnxruntime   # (torch only needed for ONNX export)
     python3 scripts/convert_crepe_onnx.py
 
-Output: src/assets/models/crepe_tiny_quantized.onnx
+Output: src/assets/models/crepe_tiny.onnx
 
-The quantization step reduces float32 weights to uint8 integers,
-shrinking the model from ~16MB to ~3-4MB with negligible precision
-loss for pitch tracking (±2 cents typical).
+Torchcrepe's tiny.pth is already fp16 at 1.87 MB — the fp32 ONNX will land
+around 5-7 MB. If the fp32 export exceeds 10 MB, the script auto-quantizes
+to uint8 (~1.5-2 MB). Otherwise it ships fp32 as-is.
 """
 
 import os
@@ -21,9 +21,10 @@ import sys
 INPUT_SIZE = 4096        # Matches our verified 93ms audio frame
 OUTPUT_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "src", "assets", "models", "crepe_tiny_quantized.onnx"
+    "src", "assets", "models", "crepe_tiny.onnx"
 )
 TEMP_ONNX = "/tmp/crepe_tiny_fp32.onnx"
+QUANTIZE_THRESHOLD_MB = 10  # Only quantize if fp32 exceeds this
 
 # ── Part A: Export to ONNX ─────────────────────────────────────────
 
@@ -94,31 +95,36 @@ def export_onnx():
     print(f"   ✅ FP32 ONNX exported: {file_size_mb:.1f} MB")
 
 
-# ── Part B: Quantize to 8-bit integers ─────────────────────────────
+# ── Part B: Conditional Quantization ──────────────────────────────────
 
-def quantize_model():
-    """Dynamic-quantize the ONNX model from float32 to uint8."""
+def maybe_quantize():
+    """Quantize only if fp32 ONNX exceeds QUANTIZE_THRESHOLD_MB."""
     try:
         from onnxruntime.quantization import quantize_dynamic, QuantType
     except ImportError:
         print("❌ onnxruntime not installed. Run: pip install onnxruntime")
         sys.exit(1)
 
-    print("🗜️  Quantizing to 8-bit integers (QUInt8)...")
+    fp32_mb = os.path.getsize(TEMP_ONNX) / (1024 * 1024)
+    print(f"\n   fp32 ONNX size: {fp32_mb:.1f} MB")
 
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
 
-    quantize_dynamic(
-        model_input=TEMP_ONNX,
-        model_output=OUTPUT_PATH,
-        weight_type=QuantType.QUInt8,
-        # Preserve accuracy: only quantize Conv and Linear layers
-        op_types_to_quantize=['Conv', 'Gemm', 'MatMul'],
-    )
+    if fp32_mb <= QUANTIZE_THRESHOLD_MB:
+        print(f"   ✅ Below {QUANTIZE_THRESHOLD_MB} MB threshold — shipping fp32 as-is")
+        import shutil
+        shutil.copy2(TEMP_ONNX, OUTPUT_PATH)
+    else:
+        print(f"   ⚠️  Exceeds {QUANTIZE_THRESHOLD_MB} MB threshold — quantizing to uint8...")
+        quantize_dynamic(
+            model_input=TEMP_ONNX,
+            model_output=OUTPUT_PATH,
+            weight_type=QuantType.QUInt8,
+            op_types_to_quantize=['Conv', 'Gemm', 'MatMul'],
+        )
 
-    file_size_mb = os.path.getsize(OUTPUT_PATH) / (1024 * 1024)
-    print(f"   ✅ Quantized model: {file_size_mb:.1f} MB")
-    print(f"   📁 Saved to: {OUTPUT_PATH}")
+    final_mb = os.path.getsize(OUTPUT_PATH) / (1024 * 1024)
+    print(f"   📁 Final model: {final_mb:.1f} MB — {OUTPUT_PATH}")
 
     # Clean up temp file
     try:
@@ -130,7 +136,7 @@ def quantize_model():
 # ── Part C: Validate ───────────────────────────────────────────────
 
 def validate_model():
-    """Run a sanity check inference on the quantized model."""
+    """Run a sanity check inference on the final model."""
     try:
         import numpy as np
         import onnxruntime as ort
@@ -138,7 +144,7 @@ def validate_model():
         print("⚠️  Skipping validation (numpy/onnxruntime not available)")
         return
 
-    print("🔍 Validating quantized model with test inference...")
+    print("🔍 Validating model with test inference...")
 
     session = ort.InferenceSession(OUTPUT_PATH)
     dummy_audio = np.random.randn(1, INPUT_SIZE).astype(np.float32)
@@ -157,15 +163,15 @@ def validate_model():
 
 if __name__ == '__main__':
     print("╔══════════════════════════════════════════╗")
-    print("║   CREPE-Tiny → ONNX Quantization        ║")
+    print("║   CREPE-Tiny → ONNX Export              ║")
     print("╚══════════════════════════════════════════╝")
     print(f"   Target: {OUTPUT_PATH}")
     print(f"   Input size: {INPUT_SIZE} samples")
     print()
 
     export_onnx()
-    quantize_model()
+    maybe_quantize()
     validate_model()
 
-    print("\n✅ Done! Drop crepe_tiny_quantized.onnx into src/assets/models/")
+    print("\n✅ Done! Drop crepe_tiny.onnx into src/assets/models/")
     print("   and set ENGINE='NEURAL' in the app to use it.")

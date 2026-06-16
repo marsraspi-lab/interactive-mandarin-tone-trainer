@@ -94,7 +94,7 @@ let ortNeuralSession = null;
 async function initNeuralSession() {
   if (ortNeuralSession) return;
   const ort = await import('onnxruntime-node');
-  const modelPath = resolve(PROJECT_ROOT, 'src', 'assets', 'models', 'crepe_tiny_quantized.onnx');
+  const modelPath = resolve(PROJECT_ROOT, 'src', 'assets', 'models', 'crepe_tiny.onnx');
   if (!existsSync(modelPath)) {
     throw new Error(`Neural model not found: ${modelPath}\n  Run: python3 scripts/convert_crepe_onnx.py`);
   }
