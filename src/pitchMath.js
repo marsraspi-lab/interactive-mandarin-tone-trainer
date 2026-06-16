@@ -232,6 +232,39 @@ export function calculateMAEScore(userTrack, nativeTrack) {
 }
 
 /**
+ * Calculate MAE only on consensus-valid frames (pYIN ∩ AMDF agreement).
+ * Frames where consensusMask is false are excluded from the average,
+ * producing a score based solely on frames both algorithms agree are voiced.
+ *
+ * Returns null if no consensus frames exist for this word.
+ *
+ * @param {number[]} userTrack — Z-score normalized user pitch values
+ * @param {number[]} nativeTrack — Z-score normalized native pitch values
+ * @param {boolean[]} consensusMask — true for positions with pYIN/AMDF agreement
+ * @returns {number|null} accuracy score 0–100, or null if no consensus frames
+ */
+export function calculateConsensusMAEScore(userTrack, nativeTrack, consensusMask) {
+  if (!consensusMask || consensusMask.length === 0) return null;
+  if (userTrack.length !== nativeTrack.length) return null;
+  if (userTrack.length !== consensusMask.length) return null;
+
+  let sumAbsError = 0;
+  let count = 0;
+  for (let i = 0; i < userTrack.length; i++) {
+    if (consensusMask[i]) {
+      sumAbsError += Math.abs(userTrack[i] - nativeTrack[i]);
+      count++;
+    }
+  }
+
+  if (count === 0) return null;
+
+  const mae = sumAbsError / count;
+  const score = Math.max(0, 100 * (1 - mae / 2.0));
+  return Math.round(score);
+}
+
+/**
  * Analyze vector deviations between user and native pitch to produce
  * actionable diagnostic feedback based on tone-specific shape errors.
  *

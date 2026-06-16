@@ -6,6 +6,7 @@
 import {
   computeDynamicTimeWarping,
   calculateMAEScore,
+  calculateConsensusMAEScore,
   evaluateDiagnosticFeedback,
   normalizeZScore,
   normalizeWithSharedStats,
@@ -316,15 +317,29 @@ function gradeAttempt() {
     100
   );
 
-  const score = calculateMAEScore(userAligned, nativeAligned);
-  scoreEl.textContent = `${score}%`;
+  // Standard score (all 100 frames)
+  const stdScore = calculateMAEScore(userAligned, nativeAligned);
+
+  // Consensus score (only pYIN ∩ AMDF frames)
+  const consensusMask = refData.consensusMask || null;
+  const conScore = calculateConsensusMAEScore(userAligned, nativeAligned, consensusMask);
+
+  // Display both scores side by side
+  let scoreText = `Standard: ${stdScore}%`;
+  if (conScore != null) {
+    const maskCount = consensusMask.filter(Boolean).length;
+    scoreText += `  |  Consensus: ${conScore}% (${maskCount}/100 frames)`;
+  } else {
+    scoreText += `  |  Consensus: N/A`;
+  }
+  scoreEl.textContent = scoreText;
 
   const feedback = evaluateDiagnosticFeedback(userAligned, nativeAligned, preset.tones);
   feedbackEl.textContent = feedback;
 
-  if (score >= 80) {
+  if (stdScore >= 80) {
     statusEl.textContent = 'Great job! 🎉';
-  } else if (score >= 50) {
+  } else if (stdScore >= 50) {
     statusEl.textContent = 'Getting there. Try again.';
   } else {
     statusEl.textContent = 'Keep practicing!';
@@ -337,11 +352,12 @@ async function loadPresets() {
     if (resp.ok) {
       const data = await resp.json();
       for (const p of (data.presets || [])) {
-        // Store full preset data: reference curve + optional native µ/σ
+        // Store full preset data: reference curve + optional native µ/σ + consensus mask
         pitchRefs.set(p.word, {
           reference: p.nativePitchReference || [],
           nativeMean: p.nativeMean,
           nativeStd: p.nativeStd,
+          consensusMask: p.consensusMask || null,
         });
       }
     }
