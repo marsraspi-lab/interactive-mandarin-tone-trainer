@@ -23,7 +23,27 @@ export function detectPitchAMDF(buffer, sampleRate) {
     sumSq += buffer[i] * buffer[i];
   }
   const rms = Math.sqrt(sumSq / buffer.length);
-  if (rms < 0.005) return 0;
+  if (rms < 0.002) return 0;
+
+  // ── Task 1.1: Zero-Crossing Rate Fricative Eraser ──────────────────
+  // Mandarin fricatives ("s", "x", "sh", "ch") are unvoiced high-frequency
+  // noise. ZCR measures how often the signal changes sign per sample.
+  //   ZCR = 1/(2N) · Σ|sgn(x[n]) − sgn(x[n−1])|
+  // Voiced speech: ZCR < 0.15.  Fricatives: ZCR > 0.20.
+  // If ZCR exceeds threshold, skip AMDF and return 0 (unvoiced).
+  let zcrCrossings = 0;
+  const N = buffer.length;
+  for (let i = 1; i < N; i++) {
+    // signum: 1 if positive, -1 if negative, 0 at zero
+    const sgnCurr = buffer[i] > 0 ? 1 : (buffer[i] < 0 ? -1 : 0);
+    const sgnPrev = buffer[i - 1] > 0 ? 1 : (buffer[i - 1] < 0 ? -1 : 0);
+    if (sgnCurr !== sgnPrev) zcrCrossings++;
+  }
+  const zcr = zcrCrossings / (2 * N);
+  // Threshold: > 0.15 indicates unvoiced fricative / white noise.
+  // Tuned above max observed ZCR for clean voiced frames (ma1=0.121, ma4=0.121).
+  // Fricative onsets: ZCR 0.15–0.35.
+  if (zcr > 0.15) return 0;
 
   let bestPeriod = -1;
   let bestDiff = Infinity;
@@ -63,10 +83,148 @@ export function detectPitchAMDF(buffer, sampleRate) {
 }
 
 /**
- * Apply 3-point moving average filter to smooth pitch contours.
- * Eliminates artifacts from plosive consonants (e.g., "p", "t", "k").
- * Formula: f_smooth[i] = (f[i-1] + f[i] + f[i+1]) / 3
- * Endpoints use available neighbors only.
+ * Detect fundamental frequency using autocorrelation.
+ * Used as a fallback when AMDF fails or as an alternative pitch
+ * detection algorithm. Autocorrelation is more robust to vocal fry
+ * and low-SNR recordings than AMDF.
+ *
+ * @param {Float32Array} buffer — time-domain audio samples
+ * @param {number} sampleRate — samples per second
+ * @returns {number} detected frequency in Hz, or 0 if no voice detected
+ */
+export function detectPitchAutocorrelation(buffer, sampleRate) {
+  const MIN_FREQ = 60;
+  const MAX_FREQ = 400;
+  const MIN_LAG = Math.floor(sampleRate / MAX_FREQ);
+  const MAX_LAG = Math.floor(sampleRate / MIN_FREQ);
+
+  // Silence gate
+  let sumSq = 0;
+  for (let i = 0; i < buffer.length; i++) {
+    sumSq += buffer[i] * buffer[i];
+  }
+  const rms = Math.sqrt(sumSq / buffer.length);
+  if (rms < 0.002) return 0;
+
+  // ZCR gate (same as AMDF — reject fricative noise)
+  let zcrCrossings = 0;
+  const N = buffer.length;
+  for (let i = 1; i < N; i++) {
+    const sgnCurr = buffer[i] > 0 ? 1 : (buffer[i] < 0 ? -1 : 0);
+    const sgnPrev = buffer[i - 1] > 0 ? 1 : (buffer[i - 1] < 0 ? -1 : 0);
+    if (sgnCurr !== sgnPrev) zcrCrossings++;
+  }
+  if (zcrCrossings / (2 * N) > 0.15) return 0;
+
+  // Autocorrelation
+  let bestLag = -1;
+  let bestCorr = -Infinity;
+
+  for (let lag = MIN_LAG; lag <= MAX_LAG && lag < buffer.length; lag++) {
+    let corrSum = 0;
+    let count = 0;
+    for (let i = 0; i < buffer.length - lag; i++) {
+      corrSum += buffer[i] * buffer[i + lag];
+      count++;
+    }
+    const avgCorr = corrSum / count;
+
+    if (avgCorr > bestCorr) {
+      bestCorr = avgCorr;
+      bestLag = lag;
+    }
+  }
+
+  if (bestLag <= 0) return 0;
+
+  // Correlation strength gate: require strong correlation relative to signal energy.
+  // Threshold 0.4 — only accept frames with very clear periodicity.
+  const energy = sumSq / buffer.length;
+  if (bestCorr < energy * 0.4) return 0;
+
+  const frequency = sampleRate / bestLag;
+  if (frequency < MIN_FREQ || frequency > MAX_FREQ) return 0;
+
+  return frequency;
+}
+
+/**
+ * Task 1.2: Anti-Octave Jump Sub-Harmonic Filter.
+ *
+ * AMDF can lock onto harmonics (2×f0) or subharmonics (0.5×f0), causing
+ * vertical pitch jumps. This filter maintains a rolling 3-frame cache of
+ * verified frequencies and corrects octave errors using proximity checks.
+ *
+ * Algorithm:
+ *   If |f_new - 2·f_median| < ε  ⇒  f_corrected = f_new / 2   (octave-up error)
+ *   If |f_new - 0.5·f_median| < ε ⇒ f_corrected = f_new * 2   (octave-down error)
+ *   Otherwise, accept f_new and update cache.
+ *
+ * @param {number[]} pitchArray — sequential pitch values in Hz (0 = unvoiced)
+ * @param {number} [cacheSize=3] — rolling history window size
+ * @returns {number[]} octave-corrected pitch array
+ */
+export function applyOctaveCorrection(pitchArray, cacheSize = 3) {
+  const result = new Array(pitchArray.length);
+  const cache = []; // rolling window of verified frequencies
+
+  for (let i = 0; i < pitchArray.length; i++) {
+    const f = pitchArray[i];
+
+    // Pass through zeros (unvoiced frames) unchanged
+    if (f === 0) {
+      result[i] = 0;
+      continue;
+    }
+
+    // Not enough history — accept as-is
+    if (cache.length < 2) {
+      cache.push(f);
+      if (cache.length > cacheSize) cache.shift();
+      result[i] = f;
+      continue;
+    }
+
+    // Compute median of rolling cache
+    const sorted = [...cache].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
+
+    // Epsilon: 5% of median, minimum 5 Hz
+    const epsilon = Math.max(median * 0.05, 5);
+
+    let corrected = f;
+
+    // Check for octave-up error (detected 2nd harmonic instead of fundamental)
+    if (Math.abs(f - 2 * median) < epsilon) {
+      corrected = f / 2;
+    }
+    // Check for octave-down error (detected subharmonic)
+    else if (Math.abs(f - 0.5 * median) < epsilon) {
+      corrected = f * 2;
+    }
+
+    // Reject frames that jump more than an octave from history
+    if (Math.abs(corrected - median) > median * 0.6) {
+      corrected = 0;
+    }
+
+    result[i] = corrected;
+
+    // Update cache with corrected value (only if non-zero)
+    if (corrected > 0) {
+      cache.push(corrected);
+      if (cache.length > cacheSize) cache.shift();
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Apply 5-point median filter to smooth pitch contours.
+ * More robust than 3-point moving average for sparse pitch data —
+ * median is insensitive to single-sample outliers and preserves
+ * edges better, critical for tone transitions.
  *
  * @param {number[]} pitchArray — sequential pitch values in Hz
  * @returns {number[]} smoothed pitch array
@@ -75,11 +233,26 @@ export function applyThreePointSmoothing(pitchArray) {
   if (pitchArray.length < 2) return [...pitchArray];
 
   const result = new Array(pitchArray.length);
-  result[0] = (pitchArray[0] + pitchArray[1]) / 2;
-  for (let i = 1; i < pitchArray.length - 1; i++) {
-    result[i] = (pitchArray[i - 1] + pitchArray[i] + pitchArray[i + 1]) / 3;
+
+  for (let i = 0; i < pitchArray.length; i++) {
+    // Collect up to 5 neighbors centered on i, skipping zeros
+    const window = [];
+    for (let j = Math.max(0, i - 2); j <= Math.min(pitchArray.length - 1, i + 2); j++) {
+      if (pitchArray[j] > 0) window.push(pitchArray[j]);
+    }
+    if (window.length === 0) {
+      result[i] = 0;
+    } else if (window.length === 1) {
+      result[i] = window[0];
+    } else {
+      window.sort((a, b) => a - b);
+      const mid = Math.floor(window.length / 2);
+      result[i] = window.length % 2 === 1
+        ? window[mid]
+        : (window[mid - 1] + window[mid]) / 2;
+    }
   }
-  result[pitchArray.length - 1] = (pitchArray[pitchArray.length - 2] + pitchArray[pitchArray.length - 1]) / 2;
+
   return result;
 }
 
@@ -203,6 +376,51 @@ export function calculateMAEScore(userTrack, nativeTrack) {
   // Z-score threshold: MAE of 2.0 means avg deviation is 2σ — that's failing
   const score = Math.max(0, 100 * (1 - mae / 2.0));
   return Math.round(score);
+}
+
+/**
+ * Task 3.1: Pitch Trajectory Linear Interpolation for Vocal Fry Support.
+ *
+ * When AMDF drops frames (vocal fry, creaky voice, fricative onsets),
+ * linear interpolation bridges the gaps using valid neighbors instead
+ * of leaving zeros that distort z-score normalization.
+ *
+ * Only interpolates over gaps up to maxGap frames wide — larger gaps
+ * are left as zeros (true silence).
+ *
+ * @param {number[]} pitchArray — sequential pitch values in Hz (0 = gap)
+ * @param {number} [maxGap=8] — maximum gap width to interpolate
+ * @returns {number[]} interpolated pitch array
+ */
+export function applySplineInterpolation(pitchArray, maxGap = 8) {
+  const n = pitchArray.length;
+  if (n < 3) return [...pitchArray];
+
+  const result = [...pitchArray];
+  let gapStart = -1;
+
+  for (let i = 0; i < n; i++) {
+    if (result[i] === 0 && gapStart === -1) {
+      gapStart = i;
+    } else if (result[i] !== 0 && gapStart !== -1) {
+      const gapEnd = i;
+      const gapWidth = gapEnd - gapStart;
+
+      if (gapWidth > 0 && gapWidth <= maxGap && gapStart > 0) {
+        const before = result[gapStart - 1];
+        const after = result[gapEnd];
+        if (before > 0 && after > 0) {
+          for (let j = 0; j < gapWidth; j++) {
+            const t = (j + 1) / (gapWidth + 1);
+            result[gapStart + j] = before + (after - before) * t;
+          }
+        }
+      }
+      gapStart = -1;
+    }
+  }
+
+  return result;
 }
 
 /**
