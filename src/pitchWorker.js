@@ -33,37 +33,44 @@ const CREPE_INPUT_SIZE = 1024;
 const CREPE_SAMPLE_RATE = 16000;
 
 /**
- * Convert CREPE probability output to Hz using weighted top-K averaging.
- * Averages the top 3 bins weighted by their confidence, giving sub-bin
- * precision for smoother pitch contours — critical for tone tracking.
+ * Decode CREPE sigmoid output to Hz using weighted argmax.
  *
- * @param {Float32Array} probabilities — 360-element probability array
- * @param {number} [topK=3] — number of peak bins to average
- * @returns {number} frequency in Hz, or 0 if max confidence < threshold
+ * Matches torchcrepe's weighted_argmax decoder:
+ *   1. Find argmax bin → window ±4 bins around it
+ *   2. Sigmoid already applied by model → values in [0, 1]
+ *   3. Weighted average by CENTS (log frequency), not Hz
+ *
+ * @param {Float32Array} probabilities — 360-element sigmoid probability array [0, 1]
+ * @returns {number} frequency in Hz, or 0 if peak confidence < threshold
  */
-function decodeCrepeFrequency(probabilities, topK = 3) {
-  // Find top-K bins by probability
-  const indexed = [];
-  for (let i = 0; i < probabilities.length; i++) {
-    indexed.push({ idx: i, prob: probabilities[i] });
-  }
-  indexed.sort((a, b) => b.prob - a.prob);
-
-  // Confidence gate: if the peak probability is too low, return 0
-  if (indexed[0].prob < 0.3) return 0;
-
-  // Weighted average of top K bins
-  let weightedSum = 0;
-  let weightTotal = 0;
-  const k = Math.min(topK, indexed.length);
-
-  for (let j = 0; j < k; j++) {
-    if (indexed[j].prob <= 0) break;
-    weightedSum += CREPE_BIN_HZ[indexed[j].idx] * indexed[j].prob;
-    weightTotal += indexed[j].prob;
+function decodeCrepeFrequency(probabilities) {
+  // Find argmax bin
+  let maxIdx = 0, maxVal = probabilities[0];
+  for (let i = 1; i < probabilities.length; i++) {
+    if (probabilities[i] > maxVal) { maxIdx = i; maxVal = probabilities[i]; }
   }
 
-  return weightedSum / weightTotal;
+  // Confidence gate: sigmoid near 0.5 = model uncertainty
+  if (maxVal < 0.6) return 0;
+
+  // Window ±4 bins around argmax
+  const lo = Math.max(0, maxIdx - 4);
+  const hi = Math.min(probabilities.length - 1, maxIdx + 4);
+
+  // Weighted average by cents (log frequency)
+  const fminCents = 1200 * Math.log2(CREPE_FMIN);
+  let wSum = 0, wTot = 0;
+  for (let i = lo; i <= hi; i++) {
+    const cents = fminCents + i * CREPE_CENTS_PER_BIN;
+    wSum += cents * probabilities[i];
+    wTot += probabilities[i];
+  }
+
+  if (wTot <= 0) return 0;
+
+  // Convert weighted mean cents back to Hz: 10 * 2^(cents/1200)
+  const meanCents = wSum / wTot;
+  return 10 * Math.pow(2, meanCents / 1200);
 }
 
 // ── Resampling (linear interpolation) ─────────────────────────────

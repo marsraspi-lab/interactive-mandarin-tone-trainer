@@ -42,22 +42,13 @@ def export_onnx():
     # Try the official torchcrepe package first, fall back to crepe-pytorch
     try:
         import torchcrepe
-        # torchcrepe doesn't expose a model class directly — it wraps inference
-        # We need the raw model. Use the underlying architecture.
         print("   Using torchcrepe package")
 
-        # torchcrepe uses a pre-trained model accessible via its API
-        # For ONNX export we need the raw nn.Module
-        # The model is a small CNN defined in the package
+        # torchcrepe exposes the Crepe model directly — the constructor
+        # loads pretrained weights from its bundled assets automatically
         from torchcrepe.model import Crepe as CrepeModel
 
-        model = CrepeModel(capacity='tiny')
-        # Load pretrained weights
-        state_dict = torch.hub.load_state_dict_from_url(
-            'https://github.com/maxrmorrison/torchcrepe/raw/master/pretrained/tiny.pth',
-            map_location='cpu'
-        )
-        model.load_state_dict(state_dict)
+        model = CrepeModel(model='tiny')
         model.eval()
 
     except ImportError:
@@ -87,8 +78,9 @@ def export_onnx():
             'input_audio': {0: 'batch_size'},
             'pitch_probabilities': {0: 'batch_size'}
         },
-        opset_version=14,
+        opset_version=18,
         do_constant_folding=True,
+        dynamo=False,
     )
 
     file_size_mb = os.path.getsize(TEMP_ONNX) / (1024 * 1024)

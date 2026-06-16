@@ -47,22 +47,44 @@ for (let i = 0; i < 360; i++) {
 }
 
 /**
- * Decode CREPE probability vector to Hz using weighted top-3 averaging.
- * @param {Float32Array} probs — 360-element probability array
- * @returns {number} frequency in Hz, or 0 if peak confidence < 0.3
+ * Decode CREPE sigmoid output to Hz using weighted argmax.
+ *
+ * Matches torchcrepe's weighted_argmax decoder:
+ *   1. Find argmax bin → window ±4 bins around it
+ *   2. Sigmoid already applied by model → values in [0, 1]
+ *   3. Weighted average by CENTS (log frequency), not Hz
+ *
+ * @param {Float32Array} probs — 360-element sigmoid probability array [0, 1]
+ * @returns {number} frequency in Hz, or 0 if peak confidence < threshold
  */
 function decodeCrepeHz(probs) {
-  const indexed = [];
-  for (let i = 0; i < probs.length; i++) indexed.push({ idx: i, p: probs[i] });
-  indexed.sort((a, b) => b.p - a.p);
-  if (indexed[0].p < 0.3) return 0;
-
-  let wSum = 0, wTot = 0;
-  for (let j = 0; j < 3 && indexed[j].p > 0; j++) {
-    wSum += CREPE_BIN_HZ[indexed[j].idx] * indexed[j].p;
-    wTot += indexed[j].p;
+  // Find argmax bin
+  let maxIdx = 0, maxVal = probs[0];
+  for (let i = 1; i < probs.length; i++) {
+    if (probs[i] > maxVal) { maxIdx = i; maxVal = probs[i]; }
   }
-  return wSum / wTot;
+
+  // Confidence gate: sigmoid values near 0.5 mean total model uncertainty
+  if (maxVal < 0.6) return 0;
+
+  // Window ±4 bins around argmax
+  const lo = Math.max(0, maxIdx - 4);
+  const hi = Math.min(probs.length - 1, maxIdx + 4);
+
+  // Weighted average by cents (log frequency)
+  const fminCents = 1200 * Math.log2(32.7);
+  let wSum = 0, wTot = 0;
+  for (let i = lo; i <= hi; i++) {
+    const cents = fminCents + i * CREPE_CENTS_PER_BIN;
+    wSum += cents * probs[i];
+    wTot += probs[i];
+  }
+
+  if (wTot <= 0) return 0;
+
+  // Convert weighted mean cents back to Hz: 10 * 2^(cents/1200)
+  const meanCents = wSum / wTot;
+  return 10 * Math.pow(2, meanCents / 1200);
 }
 
 /**
