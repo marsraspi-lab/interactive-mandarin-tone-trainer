@@ -1,0 +1,30 @@
+{
+  "train": [
+    "diannao",
+    "haizi",
+    "hanyu",
+    "jinnian",
+    "jintian",
+    "jinzhang",
+    "jueding",
+    "laoshi",
+    "luxing",
+    "ma1",
+    "ma2",
+    "ma3",
+    "ma4",
+    "mingnian",
+    "pingguo",
+    "wenti",
+    "zaijian"
+  ],
+  "val": [
+    "gege",
+    "gongsi",
+    "jichang",
+    "jiejie",
+    "shuiguo",
+    "xiexie",
+    "yinhang"
+  ]
+}

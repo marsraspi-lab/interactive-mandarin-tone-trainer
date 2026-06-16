@@ -71,6 +71,7 @@ let presets = PRESETS;           // full word list
 let pitchRefs = new Map();       // word → nativePitchReference (from presets.json)
 let selectedIndex = -1;
 let currentAudio = null;
+let currentEngine = 'AMDF';      // 'AMDF' | 'NEURAL'
 
 // ── Canvas constants ────────────────────────────────────────────
 const MIN_HZ = 70;
@@ -101,6 +102,17 @@ function renderSidebar() {
     div.addEventListener('click', () => selectWord(i));
     navList.appendChild(div);
   });
+
+  // Engine toggle row
+  const engineRow = document.createElement('div');
+  engineRow.style.cssText = 'padding:10px 14px;border-top:1px solid #1a1a2e;margin-top:8px;cursor:pointer;';
+  engineRow.innerHTML = `
+    <span style="color:#8888aa;font-size:0.8rem;">Engine:</span>
+    <span style="color:#00ffcc;font-weight:700;margin-left:6px;">${currentEngine}</span>
+    <span style="color:#666688;font-size:0.7rem;float:right;">click to switch</span>
+  `;
+  engineRow.addEventListener('click', toggleEngine);
+  navList.appendChild(engineRow);
 }
 
 function selectWord(index) {
@@ -108,6 +120,20 @@ function selectWord(index) {
   playBtn.disabled = false;
   renderSidebar();
   statusEl.textContent = `Selected: ${presets[index].word} (${presets[index].pinyin})`;
+}
+
+function toggleEngine() {
+  currentEngine = currentEngine === 'AMDF' ? 'NEURAL' : 'AMDF';
+  renderSidebar();
+  statusEl.textContent = `Engine switched to ${currentEngine}`;
+  // Reset worker reference so the new engine takes effect
+  if (worker) {
+    worker.postMessage({
+      audioBuffer: new Float32Array(1),
+      sampleRate: 44100,
+      engine: currentEngine,
+    });
+  }
 }
 
 // ── Canvas rendering ────────────────────────────────────────────
@@ -203,6 +229,7 @@ function processAudioFrame() {
     worker.postMessage({
       audioBuffer: dataArray,
       sampleRate: audioContext.sampleRate,
+      engine: currentEngine,
     });
   }
 
@@ -235,7 +262,7 @@ async function startRecording() {
   recordBtn.classList.add('recording');
   scoreEl.textContent = '';
   feedbackEl.textContent = '';
-  statusEl.textContent = 'Recording…';
+  statusEl.textContent = `Recording… (${currentEngine})`;
 
   processAudioFrame();
 }

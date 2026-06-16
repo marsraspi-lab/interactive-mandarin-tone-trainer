@@ -1,0 +1,18 @@
+# validation-male/rating.txt
+# Human judgment: which files should the engine pass (PERFECT) vs flunk (TOTAL_FAIL)
+# PERFECT = clear native recording, engine must score >= 70%
+# TOTAL_FAIL = noisy/challenging, engine should score < 30% (or we don't care)
+#
+# Format: stem RATING
+
+ma1 PERFECT
+ma2 PERFECT
+ma4 PERFECT
+hanyu PERFECT
+jinzhang PERFECT
+wenti PERFECT
+zaijian PERFECT
+diannao PERFECT
+gongsi PERFECT
+yinhang PERFECT
+mingnian PERFECT
